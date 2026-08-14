@@ -1,8 +1,9 @@
-# 03. サービスカタログと台帳
+# 03. サービスカタログと台帳リポジトリ
 
 対象サービスが増減しても入口ワークフローを改修せずに済ませるための中核設計。
 **サービスをコードではなくデータとして持ち、サービスごとの連携形態の違いは
 「分類の3軸」の値の違いとして表現する。**
+カタログと台帳の実体はどちらも Git リポジトリ([後述](#台帳リポジトリgit))。
 
 ## 分類の3軸
 
@@ -10,13 +11,13 @@
 管理者への依頼+事後把握、IaC経由、本人セルフサービス……)を「パターン」として
 列挙・追加していくのではなく、**操作(add / change / remove)ごと**に次の3軸の
 組み合わせで表す。新しい連携形態は原則「新しい組み合わせ」にすぎず、
-カタログの構造も入口ワークフローも変わらない。
+カタログの構造もリコンサイラも変わらない。
 
 ### 軸1: 実行方式(execute)
 
 | 値 | 意味 | n8n の動き |
 |---|---|---|
-| `idp` | SCIM/SAML で IdP 側が完結 | 実行なし(台帳への記録のみ) |
+| `idp` | SCIM/SAML/JIT で IdP 側から連鎖して完結 | 実行なし(state への記録のみ) |
 | `api` | API で直接実行できる | コネクタサブWFを実行 |
 | `iac-pr` | Terraform 等のコード管理下 | 設定リポジトリへの PR を自動作成。マージが承認と実行を兼ね、適用結果は事後検証で確認 |
 | `prepared` | 実行は人だが準備は自動化できる | 貼り付け用 CSV・招待文面・対象画面への直リンク等を生成し、タスクに添付して起票 |
@@ -60,26 +61,29 @@ capacity ブロックの内容:
 | procurement | 調達タスクのテンプレート(担当・手順・期限日数) |
 
 - 割当時に空き枠がない場合は調達タスクを起票し、割当を「予約」として
-  タスク台帳に残して、充足後に再開する。
+  state に残して、充足後に再開する。
 - 空き枠の監視(threshold 判定)は remind-scheduler の日次実行に含める
   ([04](04-notification-abstraction.md#リマインドループ共通型))。
 - 削除時は割当解放により空き枠が戻ったことを verify 方式で確認する。
 
 補足: 期限付き付与でサービス側が自動失効する形態(JIT アクセス等)は、
 remove を `{execute: idp または api, verify: api}` とみなし、
-削除フローでは失効確認のみを行う対象にする。
+削除時は失効確認のみを行う対象にする。
 
 ## サービスカタログ
 
-カタログの1行 = 1サービス。メンバーライフサイクルの各フローは、
-実行時にカタログの有効行を読み込んで対象サービスを列挙する。
+実体は台帳リポジトリの `catalog/services.yaml`。1エントリ = 1サービスで、
+リコンサイラは実行時に有効なエントリを読み込んで対象サービスを列挙する。
+**カタログの変更も PR を通る**ため、「どのサービスをどう扱うか」の変更自体が
+レビューと履歴の対象になる。
 
-| 列 | 型 | 説明 |
+| 項目 | 型 | 説明 |
 |---|---|---|
 | service_id | 文字列 | 一意なID(例: `github`) |
 | name | 文字列 | 表示名 |
-| operations | JSON | 操作(add / change / remove)ごとの3軸設定(下記) |
-| capacity | JSON | 枠ブロック(枠なしのサービスは省略) |
+| operations | マップ | 操作(add / change / remove)ごとの3軸設定(下記) |
+| capacity | マップ | 枠ブロック(枠なしのサービスは省略) |
+| order | 数値 | 実行順。Keycloak を最優先にする(追加時は下流 SCIM/JIT の前提、削除時はキルスイッチ)ために使う |
 | enabled | 真偽 | 無効化フラグ(物理削除はしない) |
 
 operations の形:
@@ -103,105 +107,154 @@ operations の形:
 
 | service_id | add | change | remove | capacity |
 |---|---|---|---|---|
+| idp(Keycloak) | api / api | api / api | api / api | なし。order 最優先。Admin REST API でユーザー作成・グループ所属・停止(enabled: false)を行い、SSO 対応 SaaS へは JIT プロビジョニングで連鎖 |
 | github | api / api | api / api | api / api | なし(シート課金の枠管理が必要になったら tracked にするだけ) |
 | paid-license(JetBrains等) | manual / human | manual / human | manual / human | あり: total=ledger、threshold=1、調達=manual |
 | claude | manual / human | manual / human | manual / human | あり: 当面 total=ledger |
 
 Claude は **Anthropic Admin API の導入時に、各操作を `api / api` に、capacity の
 把握を `api` に書き換えてコネクタを1本追加するだけで自動化に昇格できる**。
-軸の値の変更だけで済み、フロー側の改修は発生しない。
+軸の値の変更だけで済み、リコンサイラの改修は発生しない。
 
 ### サービスの増減・昇格手順
 
-| 変更 | 手順 | 入口WFの改修 |
+| 変更 | 手順 | リコンサイラの改修 |
 |---|---|---|
-| サービスを追加 | カタログに1行追加。execute が `api` / `iac-pr` / `prepared` の操作にはハンドラサブWFを1本作成 | 不要 |
-| サービスを外す | `enabled: false` に変更(履歴保持のため物理削除しない) | 不要 |
-| 方式の昇格(`manual`→`api`、`none`→`api` 等) | ハンドラ作成+該当 operation の軸値を変更 | 不要 |
+| サービスを追加 | `catalog/services.yaml` に1エントリ追加する PR。execute が `api` / `iac-pr` / `prepared` の操作にはハンドラサブWFを1本作成 | 不要 |
+| サービスを外す | `enabled: false` にする PR(履歴保持のため物理削除しない) | 不要 |
+| 方式の昇格(`manual`→`api`、`none`→`api` 等) | ハンドラ作成+該当 operation の軸値を変更する PR | 不要 |
 
 ## 役割マトリクス
 
-役割 × サービス → 付与内容(grant)。追加時はこの表から grant を引き、
-役割変更時は新旧の grant 差分を適用する。
+実体は `catalog/role-matrix.yaml`。役割 × サービス → 付与内容(grant)。
+リコンサイラはこの表を展開して「あるべき grant 集合」を計算する。
 
-| 役割 \ サービス | github | paid-license | claude |
-|---|---|---|---|
-| developer | team: `dev-members` | JetBrains 1シート | 標準シート |
-| reviewer | team: `dev-members`, `reviewers` | JetBrains 1シート | 標準シート |
-| pm | team: `pm` | − | 標準シート |
-| admin | team: `dev-members`, org role: owner | JetBrains 1シート | 管理者シート |
+| 役割 \ サービス | idp(Keycloak グループ) | github | paid-license | claude |
+|---|---|---|---|---|
+| developer | `dev` | team: `dev-members` | JetBrains 1シート | 標準シート |
+| reviewer | `dev`, `reviewers` | team: `dev-members`, `reviewers` | JetBrains 1シート | 標準シート |
+| pm | `pm` | team: `pm` | − | 標準シート |
+| admin | `dev`, `admins` | team: `dev-members`, org role: owner | JetBrains 1シート | 管理者シート |
+
+affiliation による役割制約(例: `admin` は `employee` のみ)は台帳リポジトリの
+CI 検証で強制する。
 
 ※ 役割名・値は例。**grant の値はカタログ側では不透明な文字列/JSONとして扱い、
 解釈はハンドラ(自動実行時)またはタスク本文への埋め込み(人手実行時)に委ねる。**
 これによりサービスごとの表現の違いがマトリクスの構造に影響しない。
 `−` は付与なし(削除時の棚卸しでは verify が `human` / `none` のサービスを
-念のため確認対象に含める。→ [01. 削除フロー](01-member-lifecycle.md#削除フローmember-remove))。
+念のため確認対象に含める。→ [01. 削除](01-member-lifecycle.md))。
 
 ## ハンドラの入出力インターフェース
 
 自動実行系のハンドラサブWFは全て同じ入出力に従う。
-入口フローはハンドラ名をカタログから読んで Execute Workflow で呼び出すだけ。
+リコンサイラはハンドラ名をカタログから読んで Execute Workflow で呼び出すだけ。
 
 ```jsonc
 // 入力
 {
   "operation": "add | change | remove",
-  "member": { "email": "...", "name": "...", "service_account": "..." }, // service_account は台帳のサービス固有ID
+  "member": { "email": "...", "name": "...", "service_account": "..." }, // service_account は members/ の accounts: の値
   "grant": "<役割マトリクスの値>",          // add / change で使用
   "previous_grant": "<旧役割の値>"          // change のみ
 }
 // 出力(種別ごと)
 { "ok": true, "detail": "..." }             // connector(api): 実行結果。失敗時は ok: false + 理由。冪等に作る
-{ "ok": true, "pr_url": "..." }             // iac-pr: 作成した PR の URL(タスク台帳に記録し、マージを verify で確認)
+{ "ok": true, "pr_url": "..." }             // iac-pr: 作成した PR の URL(state に記録し、マージを verify で確認)
 { "ok": true, "attachment": "..." }         // preparer(prepared): タスクに添付する準備物(CSV・文面・リンク等)
 ```
 
-## 台帳スキーマ
+## 台帳リポジトリ(Git)
 
-台帳アクセスは `ledger-read` / `ledger-write` サブWFに一元化し、
-格納先を差し替えても呼び出し側が変わらないようにする。
+台帳の実体は専用の Git リポジトリ(プレースホルダ `LEDGER_REPO`)。
+**あるべき状態(desired)を人が PR で編集し、実態(state)を bot が記録する。**
+台帳アクセスは従来どおり `ledger-read` / `ledger-write` サブWFに一元化する
+(内部実装が GitHub API の読み取り/コミットになるだけで、呼び出し側は不変)。
 
-### メンバー台帳
+```
+ledger-repo/
+├── members/<id>.yaml        # desired: 人が PR で編集(要レビュー)
+├── catalog/
+│   ├── services.yaml        # サービスカタログ(3軸・order・capacity)
+│   ├── role-matrix.yaml     # 役割マトリクス
+│   └── pc-software.yaml     # PC 必須ソフトカタログ
+└── state/
+    ├── members/<id>.yaml    # actual: 付与実態と未完了タスク(bot が記録)
+    └── pcs/<machine>.yaml   # PC 台帳(bot が記録)
+```
 
-| 列 | 説明 |
-|---|---|
-| email(キー) / name / role | 基本情報と現在の役割 |
-| status | `provisioning` → `active` → `offboarding` → `removed` |
-| service_accounts | JSON。サービス固有IDと付与済み grant(例: `{"github": {"username": "hogeo", "grant": "dev-members"}}`) |
-| joined_at / left_at / updated_at | 日付・履歴 |
+### 書き込み権限の規約
 
-### PC台帳
-
-| 列 | 説明 |
-|---|---|
-| netbox_device_id(キー) | NetBox 側の device ID(詳細は NetBox が正) |
-| machine_name / user_email / serial / purchased_at | 基本情報 |
-| status | `registering` → `license-pending` → `active` → `retired` |
-
-### タスク台帳
-
-| 列 | 説明 |
-|---|---|
-| task_id(キー) | 一意ID |
-| kind | `member-add` / `member-remove` / `role-change` / `pc-license` / `procurement` / `audit` など |
-| subject / description | 件名と手順(タスクテンプレートから展開。`prepared` の準備物や `iac-pr` の PR URL もここに載る) |
-| assignee | 担当者(通知先。セルフサービス型では本人) |
-| due | 期限 |
-| status | `open` / `done` / `failed` / `escalated` / `cancelled` |
-| verify / verify_ref | 確認方式(カタログから複写)と検証用の参照(コネクタ名・クエリ等)。remind-scheduler が自動クローズ判定に使う |
-| remind_count / last_reminded_at | リマインド制御(→ [04](04-notification-abstraction.md)) |
-| source | 起票元(申請ID・実行ID)。追跡用 |
-| complete_url | 完了報告リンク(verify が `human` / `none` の場合に使用) |
-
-## 格納先の選定
-
-| 候補 | 長所 | 短所 |
+| パス | 書く人 | 保護 |
 |---|---|---|
-| **n8n Data Tables(第一候補)** | n8n 内蔵で追加インフラ不要。ワークフローから最速で読み書きできる | 一覧性・共有 UI が弱い。バックアップが n8n DB 依存 |
-| Google Sheets | 閲覧・手修正・共有が容易 | API クオータ、手編集によるスキーマ崩れリスク |
-| NocoDB(self-host) | UI と API の両立、スキーマ強制 | 運用コンポーネントが増える |
+| `members/` `catalog/` | 人(+bot の自動 PR) | PR 必須・レビュー必須(ブランチ保護)。CI がスキーマ・制約を検証し、権限差分をコメント |
+| `state/` | bot のみ | bot マシンアカウントは保護をバイパスして直接コミット。人による `state/` 編集は CI で拒否 |
 
-**方針**: 検証は n8n Data Tables で開始する。運用に乗せて「人が台帳を直接見たい」
-需要が強くなったら Sheets / NocoDB へ移行する。移行影響は `ledger-read` /
-`ledger-write` の内部実装のみ(呼び出し側は無改修)。
-サービスカタログ・役割マトリクス・必須ソフトカタログも同じ格納先に置く。
+### members/<id>.yaml(desired)
+
+```yaml
+name: Hoge Hogeo
+email: hogeo@example.com
+affiliation: employee          # employee | partner:<会社名>
+role: developer                # 役割マトリクスに存在する役割名
+status: active                 # active | left
+accounts:                      # サービス固有 ID(人が宣言)
+  github: hogeo
+sponsor: pm@example.com        # partner のみ必須(受入責任者)
+# contract_until: 2027-03-31   # partner のみ。時限付与の起点
+# effective_from: 2026-09-01   # 役割変更の適用日(任意)
+# left_at: 2026-09-30          # 削除の発効日(status: left とセット)
+# immediate: true              # 即時遮断(削除時のみ)
+```
+
+status は `active` / `left` の2値だけ。旧設計の `provisioning` / `offboarding` に
+あたる中間状態は「desired ≠ state(未収束)」として自然に表現されるため、
+明示の状態機械は持たない。
+
+### state/members/<id>.yaml(actual、bot 管理)
+
+```yaml
+grants:
+  idp:    { grant: "group:dev", since: 2026-08-20, verified_at: 2026-08-22 }
+  github: { grant: "team:dev-members", since: 2026-08-20 }
+tasks:
+  - id: t-0042
+    kind: member-add           # member-add / role-change / member-remove / procurement / audit など
+    subject: JetBrains シート購入
+    assignee: buy@example.com
+    due: 2026-08-27
+    status: open               # open / done / failed / escalated / cancelled
+    verify: human              # カタログから複写。自動クローズ判定に使う
+    remind_count: 1
+    last_reminded_at: 2026-08-24
+    complete_url: https://...  # verify が human / none の完了報告リンク
+    source: pr-123             # 起票元(PR・実行ID)。追跡用
+attempts: { github: 0 }        # 失敗の再試行カウント(上限超過でエスカレーション)
+```
+
+タスク台帳は独立させず、各メンバー(および各 PC)の state ファイル内に持つ。
+remind-scheduler や監査は `state/` を走査して横断ビューを作る。
+リマインドのたびに bot コミットが発生するが、小規模運用ではノイズとして許容する
+(気になったら remind メタデータだけ外部ストアに逃がす余地を残す)。
+
+### state/pcs/<machine>.yaml
+
+PC 購入フローは宣言型ではなくイベント駆動の記録簿型のまま。マシン名・利用者・
+シリアル・status(`registering` → `license-pending` → `active` → `retired`)・
+NetBox device ID・ライセンスタスクを bot が記録する。実機情報の正は NetBox。
+
+### 履歴・監査証跡
+
+`git log` がそのまま監査証跡になる(誰がいつ何を承認・マージし、
+bot がいつ何を付与・剥奪したか)。専用の履歴テーブルは持たない。
+
+### 検討の経緯(採用しなかった候補)
+
+| 候補 | 見送りの主な理由 |
+|---|---|
+| n8n Data Tables | 変更履歴が残らず、アクセス権台帳として監査に弱い。閲覧が n8n ログイン者限定 |
+| Google Sheets | 手編集でスキーマが崩れる。変更履歴が粗い |
+| NocoDB / Baserow 等 | 運用コンポーネントが増える。非エンジニアが台帳を直接編集する需要が強くなったら再検討 |
+
+Git 台帳の弱点はクエリ不可な点だが、メンバー数百人規模までは
+n8n 側での全ファイル走査で問題にならない。

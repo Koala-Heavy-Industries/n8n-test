@@ -36,6 +36,13 @@
 { "approved": true, "responder": "...", "responded_at": "...", "timed_out": false }
 ```
 
+実装は2つ用意し、入出力 IF は共通にする:
+
+- **PR レビュー実装(メンバー系)**: 台帳リポジトリへの PR 作成 → マージ/クローズ
+  待ち。approvers はレビュー必須者(ブランチ保護・sponsor)、timeout_days は
+  放置 PR の催促・失効に対応する(→ [01](01-member-lifecycle.md))。
+- **再開リンク実装(汎用)**: 下記のチャネル非依存方式。
+
 ## チャネル非依存の承認・完了報告方式
 
 **Wait ノード(On webhook call)+ `$execution.resumeUrl`** を基本とする。
@@ -44,7 +51,7 @@
   `?decision=approve` / `?decision=reject`)を埋め込んで notify で送る。
   どのチャネルで届いても、リンクを開けば実行が再開されるため**チャネル非依存**。
 - タスク完了報告: タスク起票時に同様の「完了リンク」(`complete_url`)を発行して
-  タスク台帳に保存し、通知・リマインドの本文に毎回含める。
+  台帳(state 内のタスク)に保存し、通知・リマインドの本文に毎回含める。
   担当者はチャネルを問わずリンクを開くだけで完了報告できる。
   完了リンクが必須なのは確認方式が `human` / `none` のタスクのみで、
   `api` / `event` のタスクは事後検証で自動クローズされる
@@ -68,7 +75,7 @@
 
 ```mermaid
 flowchart TD
-    S[毎日定時に起動] --> L[タスク台帳から status: open を取得]
+    S[毎日定時に起動] --> L[台帳の state/ から status: open のタスクを取得]
     L --> V{確認方式 api / event はまず事後検証}
     V -->|反映を検知| AC[自動クローズ status: done]
     V -->|未反映 または human / none| C{リマインド判定}
@@ -76,7 +83,7 @@ flowchart TD
     C -->|リマインド対象| N[notify で担当へ再通知 remind_count を +1]
     C -->|期限超過 かつ remind_count が上限以上| X[status: escalated にして管理者へ escalation 通知]
     N --> U[台帳の last_reminded_at を更新]
-    S --> P[滞留 status の確認と 枠管理サービスの空き枠チェック 閾値割れで調達タスク起票]
+    S --> P[未収束メンバー・空き枠・contract_until の監視 必要なら調達タスクや契約更新確認を起票]
 ```
 
 | パラメータ | 既定値 |
@@ -92,6 +99,12 @@ flowchart TD
   親レコード(メンバー / PC)の status を進めて完了通知を送る。
 - 枠(capacity)管理対象の空き枠チェックもこの日次実行に含め、
   閾値割れで調達タスクを起票する(→ [03「軸3: 枠」](03-service-catalog.md#軸3-枠capacity))。
+- 協力会社メンバーの `contract_until` 監視もここで行い、期限 N 日前に
+  sponsor へ更新確認タスクを起票、未更新なら削除 PR を自動作成する
+  (→ [01](01-member-lifecycle.md))。
+- タスクの実体は台帳リポジトリの `state/` 内
+  ([03](03-service-catalog.md#台帳リポジトリgit))。走査・更新は
+  ledger-read / ledger-write 経由なので、この節の設計は格納先に依存しない。
 - **weekly-audit(週次)** は remind-scheduler とは別に、未完了・期限超過・
   `failed` ・`escalated` の全体像を集計して管理者へレポートする
   (個別リマインドが握りつぶされても週次で必ず浮上する)。

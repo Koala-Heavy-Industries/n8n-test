@@ -34,7 +34,7 @@ flowchart LR
 | n8n-postgres | `postgres:16` | − | n8n の永続化 |
 | keycloak | `quay.io/keycloak/keycloak` | 8080 | プロジェクト IdP。SMTP を Mailpit に向けて招待メールも検証 |
 | keycloak-postgres | `postgres:16` | − | Keycloak の永続化 |
-| netbox(+worker) | `netboxcommunity/netbox` | 8000 | マシン名・実機情報の Source of Truth |
+| netbox(+worker) | `netboxcommunity/netbox` | 8000 | 実機情報(コンピュータ名・資産管理番号・IP)の Source of Truth |
 | netbox-postgres | `postgres:16` | − | NetBox の永続化 |
 | netbox-redis | `redis` | − | NetBox のキュー・キャッシュ |
 | mailpit | `axllent/mailpit` | 1025 / 8025 | 送信メールのキャッチャー。チャネル未決のまま notify を検証 |
@@ -54,7 +54,8 @@ flowchart LR
    n8n 用サービスアカウントクライアント発行(realm-management の
    `manage-users` / `query-users` / `query-groups`)、SMTP を Mailpit に設定。
 3. NetBox: API Token 発行、マスタ登録(site、device role: `dev-pc`、
-   manufacturer、既定 device_type: `generic-laptop`)。
+   manufacturer、既定 device_type: `generic-laptop`、タグ `provisional`、
+   IPAM の検証用プレフィックス)。
 4. 台帳リポジトリ(`LEDGER_REPO`)整備: ディレクトリ構成([03](03-service-catalog.md#台帳リポジトリgit))と
    カタログ初期データの投入、ブランチ保護(レビュー必須・自己承認禁止)、
    bot マシンアカウントと Token、CI(スキーマ検証・affiliation 制約・

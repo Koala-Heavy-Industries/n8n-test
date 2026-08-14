@@ -180,7 +180,7 @@ ledger-repo/
 │   └── pc-software.yaml     # PC 必須ソフトカタログ
 └── state/
     ├── members/<id>.yaml    # actual: 付与実態と未完了タスク(bot が記録)
-    └── pcs/<machine>.yaml   # PC 台帳(bot が記録)
+    └── pcs/<serial>.yaml    # PC 台帳(bot が記録。キーはシリアル番号)
 ```
 
 ### 書き込み権限の規約
@@ -237,11 +237,31 @@ remind-scheduler や監査は `state/` を走査して横断ビューを作る�
 リマインドのたびに bot コミットが発生するが、小規模運用ではノイズとして許容する
 (気になったら remind メタデータだけ外部ストアに逃がす余地を残す)。
 
-### state/pcs/<machine>.yaml
+### state/pcs/<serial>.yaml
 
-PC 購入フローは宣言型ではなくイベント駆動の記録簿型のまま。マシン名・利用者・
-シリアル・status(`registering` → `license-pending` → `active` → `retired`)・
-NetBox device ID・ライセンスタスクを bot が記録する。実機情報の正は NetBox。
+PC 購入フローは宣言型ではなくイベント駆動の記録簿型のまま。
+**キーはシリアル番号**(コンピュータ名は仮→正式で変わりうるため、名前を
+キーにしない)。実機情報の正は NetBox。
+
+```yaml
+serial: C02XY12345
+netbox_device_id: 42
+user: hogeo@example.com
+purchased_at: 2026-08-15
+computer_name: { value: khi-dev-hogeo-01, provisional: true }   # 情シス採番前は仮
+asset_no:      { value: TMP-C02XY12345,   provisional: true }
+ip_address: null
+status: license-pending        # registering → license-pending → active → retired
+tasks:
+  - { id: t-0051, kind: pc-license,       subject: JetBrains 購入,                 status: open, verify: human, blocking: true }
+  - { id: t-0052, kind: pc-official-info, subject: 正式な資産管理番号と名前の反映, status: open, verify: api,   blocking: true }
+  - { id: t-0053, kind: pc-ip,            subject: IP アドレスの登録,              status: open, verify: api,   blocking: false }
+```
+
+タスクの `blocking`(既定 true)は親レコードの完了判定に効く: `false` の
+タスクは完了判定を妨げないが、リマインドと監査の対象には含まれ続ける
+(例: PC の IP 登録は強制しないが未入力を追いかける)。詳細は
+[02](02-pc-purchase.md)。
 
 ### 履歴・監査証跡
 

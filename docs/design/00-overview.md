@@ -6,8 +6,10 @@
 
 1. **メンバーライフサイクル管理** — メンバーの追加・役割変更・削除。
    SAML/SSO ではカバーできない個別サービスの操作を n8n が担う。
-2. **開発PC購入時のタスク管理** — マシン名の決定、NetBox への登録、
-   必須ソフトのライセンス購入リマインドを申請起点で促し、漏れを防ぐ。
+2. **開発PC購入時のタスク管理** — コンピュータ名・資産管理番号の記録
+   (情シス採番前は仮の値で先行し、正式化を追跡)、NetBox への登録、
+   必須ソフトのライセンス購入リマインド、IP アドレスの回収を申請起点で促し、
+   漏れを防ぐ。
 
 ### 前提: IdP の位置づけ
 
@@ -73,6 +75,7 @@ flowchart LR
         A1[メンバー申請フォーム3種 台帳PRを自動作成]
         A2[直接PR エンジニア・緊急対応]
         A4[PC購入登録フォーム]
+        A5[PC情報更新フォーム]
     end
 
     subgraph ledger["台帳(Git リポジトリ)"]
@@ -97,6 +100,7 @@ flowchart LR
     A1 --> D1
     A2 --> D1
     A4 --> B4
+    A5 --> B4
     D1 -->|レビュー・マージ = 承認| B0
     B0 --> B4
     B0 --> D2
@@ -111,7 +115,8 @@ flowchart LR
 |---|---|---|---|---|
 | member-request(追加・変更・削除フォーム) | 入口 | Form | 申請内容から台帳リポジトリへの PR を自動作成 | [01](01-member-lifecycle.md) |
 | reconcile | 中核 | Webhook(マージ)+日次 | 台帳の desired と state の差分を計算し、付与・剥奪を収束させる | [01](01-member-lifecycle.md) |
-| pc-purchase | 入口 | Form | PC購入登録。命名・NetBox登録・ライセンスタスク | [02](02-pc-purchase.md) |
+| pc-purchase | 入口 | Form | PC購入登録。仮情報補完・NetBox登録・ライセンス等のタスク起票 | [02](02-pc-purchase.md) |
+| pc-update | 入口 | Form | PC情報更新(正式な資産管理番号・コンピュータ名、IPアドレス) | [02](02-pc-purchase.md) |
 | request-approval | サブ | Execute Workflow | 承認依頼(メンバー系= PR レビュー実装、汎用=再開リンク実装) | [04](04-notification-abstraction.md) |
 | notify | サブ | Execute Workflow | チャネル非依存の通知 | [04](04-notification-abstraction.md) |
 | ledger-read / ledger-write | サブ | Execute Workflow | 台帳アクセスの一元化 | [03](03-service-catalog.md) |

@@ -24,6 +24,7 @@
 | [03. サービスカタログと台帳](docs/design/03-service-catalog.md) | サービス増減に耐えるデータ設計、役割マトリクス、台帳スキーマ |
 | [04. 通知・承認の抽象化](docs/design/04-notification-abstraction.md) | チャネル後決めの仕組み、承認リンク方式、リマインドループ |
 | [05. 実行環境設計](docs/design/05-environment.md) | docker compose 構成、認証情報、実装ロードマップ |
+| [06. GitHub(GHEC)連携設計](docs/design/06-github-teams.md) | 非EMU前提、ネストTeam構造、命名規則、権限レベルとブランチ保護・CODEOWNERSの境界 |
 
 ## 設計上の重要な決定(サマリ)
 

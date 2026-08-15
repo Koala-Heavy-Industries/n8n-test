@@ -124,26 +124,59 @@ Claude は **Anthropic Admin API の導入時に、各操作を `api / api` に�
 | サービスを外す | `enabled: false` にする PR(履歴保持のため物理削除しない) | 不要 |
 | 方式の昇格(`manual`→`api`、`none`→`api` 等) | ハンドラ作成+該当 operation の軸値を変更する PR | 不要 |
 
-## 役割マトリクス
+## 役割マトリクスとチームマトリクス
 
-実体は `catalog/role-matrix.yaml`。役割 × サービス → 付与内容(grant)。
-リコンサイラはこの表を展開して「あるべき grant 集合」を計算する。
+grant の源泉は2枚のマトリクス+個人例外で、リコンサイラは次の和集合として
+「あるべき grant 集合」を計算する:
+
+**あるべき grant 集合 = 役割マトリクス(role) ∪ ⋃ チームマトリクス(team, role) ∪ extra_grants**
+
+### 役割マトリクス(`catalog/role-matrix.yaml`)
+
+役割 × サービス → **チームに依存しない横断的な権限**。
+チーム別の権限はここには書かない(チームマトリクスへ)。
 
 | 役割 \ サービス | idp(Keycloak グループ) | github | paid-license | claude |
 |---|---|---|---|---|
-| developer | `dev` | team: `dev-members` | JetBrains 1シート | 標準シート |
-| reviewer | `dev`, `reviewers` | team: `dev-members`, `reviewers` | JetBrains 1シート | 標準シート |
+| developer | −(チーム側で付与) | −(チーム側で付与) | JetBrains 1シート | 標準シート |
+| reviewer | − | − | JetBrains 1シート | 標準シート |
 | pm | `pm` | team: `pm` | − | 標準シート |
-| admin | `dev`, `admins` | team: `dev-members`, org role: owner | JetBrains 1シート | 管理者シート |
+| admin | `admins` | org role: owner | JetBrains 1シート | 管理者シート |
 
-affiliation による役割制約(例: `admin` は `employee` のみ)は台帳リポジトリの
-CI 検証で強制する。
+### チームマトリクス(`catalog/team-matrix.yaml`)
 
-※ 役割名・値は例。**grant の値はカタログ側では不透明な文字列/JSONとして扱い、
-解釈はハンドラ(自動実行時)またはタスク本文への埋め込み(人手実行時)に委ねる。**
-これによりサービスごとの表現の違いがマトリクスの構造に影響しない。
-`−` は付与なし(削除時の棚卸しでは verify が `human` / `none` のサービスを
-念のため確認対象に含める。→ [01. 削除](01-member-lifecycle.md))。
+チーム × サービス → **チーム別の権限**。役割との掛け合わせはセル内の
+テンプレートで表現する(役割×チームごとに役割を増やす方向は組合せ爆発するので
+採らない)。
+
+```yaml
+alpha:
+  idp:    "group:team-alpha"          # Keycloak グループ(SSO対応SaaS側の範囲制御)
+  github: "team:alpha-{role_suffix}"  # developer→alpha-devs / reviewer→alpha-reviewers
+beta:
+  idp:    "group:team-beta"
+  github: "team:beta-{role_suffix}"
+```
+
+チームの新設・廃止はこのファイルへの行追加・削除の PR。
+GitHub 側の Team 構造(ネスト・命名・権限レベル)は [06](06-github-teams.md)。
+
+### 個人単位の例外(extra_grants)
+
+原則はマトリクス経由(必要ならチームを作る)。どうしても個人単位の付与が
+必要な場合のみ `members/*.yaml` の `extra_grants:` に書けるが、
+**CI が警告ラベルを付け、`review_until:`(見直し期限)を必須**とする。
+期限が来たら remind-scheduler が棚卸しを促す。無期限の個人例外は認めない。
+
+### 共通の規約
+
+- affiliation による役割制約(例: `admin` は `employee` のみ)は台帳リポジトリの
+  CI 検証で強制する。
+- 役割名・チーム名・値は例。**grant の値はカタログ側では不透明な文字列/JSONとして
+  扱い、解釈はハンドラ(自動実行時)またはタスク本文への埋め込み(人手実行時)に
+  委ねる。**これによりサービスごとの表現の違いがマトリクスの構造に影響しない。
+- `−` は付与なし(削除時の棚卸しでは verify が `human` / `none` のサービスを
+  念のため確認対象に含める。→ [01. 削除](01-member-lifecycle.md))。
 
 ## ハンドラの入出力インターフェース
 
@@ -176,7 +209,8 @@ ledger-repo/
 ├── members/<id>.yaml        # desired: 人が PR で編集(要レビュー)
 ├── catalog/
 │   ├── services.yaml        # サービスカタログ(3軸・order・capacity)
-│   ├── role-matrix.yaml     # 役割マトリクス
+│   ├── role-matrix.yaml     # 役割マトリクス(横断的な権限)
+│   ├── team-matrix.yaml     # チームマトリクス(チーム別の権限)
 │   └── pc-software.yaml     # PC 必須ソフトカタログ
 └── state/
     ├── members/<id>.yaml    # actual: 付与実態と未完了タスク(bot が記録)
@@ -197,10 +231,13 @@ name: Hoge Hogeo
 email: hogeo@example.com
 affiliation: employee          # employee | partner:<会社名>
 role: developer                # 役割マトリクスに存在する役割名
+teams: [alpha]                 # 所属チーム(チームマトリクスのキー)。兼務は複数書く
 status: active                 # active | left
 accounts:                      # サービス固有 ID(人が宣言)
   github: hogeo
 sponsor: pm@example.com        # partner のみ必須(受入責任者)
+# extra_grants:                # 個人単位の例外(原則禁止。CI が警告し期限必須)
+#   - { service: github, grant: "team:secops", review_until: 2026-12-31 }
 # contract_until: 2027-03-31   # partner のみ。時限付与の起点
 # effective_from: 2026-09-01   # 役割変更の適用日(任意)
 # left_at: 2026-09-30          # 削除の発効日(status: left とセット)

@@ -132,3 +132,4 @@ flowchart LR
 - [03. サービスカタログと台帳](03-service-catalog.md)
 - [04. 通知・承認の抽象化](04-notification-abstraction.md)
 - [05. 実行環境設計](05-environment.md)
+- [06. GitHub(GHEC)連携設計](06-github-teams.md)

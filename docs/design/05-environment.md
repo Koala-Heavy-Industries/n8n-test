@@ -85,7 +85,6 @@ flowchart LR
 | `LEDGER_REPO` | `koala-heavy-industries/khi-ledger` | 台帳リポジトリ |
 | `KEYCLOAK_URL` / `KEYCLOAK_REALM` | `http://keycloak:8080` / `khi-dev` | プロジェクト IdP |
 | `NETBOX_URL` | `http://netbox:8000` | NetBox API |
-| `NAMING_PREFIX` | `khi` | 命名規約の組織プレフィックス |
 | `APPROVER_EMAILS` | `pm@example.com` | 承認者(申請者と分離) |
 | `ADMIN_EMAILS` | `it-admin@example.com` | エスカレーション・監査レポート宛先 |
 | `LICENSE_ASSIGNEE` | `buy@example.com` | ライセンス購入タスクの既定担当 |
@@ -105,7 +104,8 @@ flowchart LR
    Keycloak のみで一巡させる(ユーザー作成・グループ・停止・JIT 連鎖の確認)。
 5. **remind-scheduler**: state 走査 → 事後検証・自動クローズ → リマインド →
    エスカレーション、`contract_until`・空き枠の監視。
-6. **pc-purchase**: NetBox 連携(重複チェック・登録)、`state/pcs/` への記録。
+6. **pc-register / pc-update**: NetBox 連携(重複チェック・登録・正式化)、
+   `state/pcs/` への記録。
 7. **コネクタ追加**: `service-github`(冪等性・error output の確認を含む)。
 8. **監査**: weekly-audit(desired ≠ state 一覧)/ consistency-audit
    (Keycloak・GitHub との突合)。
@@ -114,4 +114,4 @@ flowchart LR
 
 各段階の完成条件は「Mailpit 上で通知・承認・リマインドの全メールが確認でき、
 台帳リポジトリの state が設計([01](01-member-lifecycle.md) /
-[02](02-pc-purchase.md) / [03](03-service-catalog.md))どおりに収束すること」。
+[02](02-pc-register.md) / [03](03-service-catalog.md))どおりに収束すること」。

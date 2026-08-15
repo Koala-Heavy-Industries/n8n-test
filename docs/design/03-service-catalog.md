@@ -276,7 +276,7 @@ remind-scheduler や監査は `state/` を走査して横断ビューを作る�
 
 ### state/pcs/<serial>.yaml
 
-PC 購入フローは宣言型ではなくイベント駆動の記録簿型のまま。
+PC 登録フローは宣言型ではなくイベント駆動の記録簿型のまま。
 **キーはシリアル番号**(コンピュータ名は仮→正式で変わりうるため、名前を
 キーにしない)。実機情報の正は NetBox。
 
@@ -284,9 +284,10 @@ PC 購入フローは宣言型ではなくイベント駆動の記録簿型の�
 serial: C02XY12345
 netbox_device_id: 42
 user: hogeo@example.com
-purchased_at: 2026-08-15
-computer_name: { value: khi-dev-hogeo-01, provisional: true }   # 情シス採番前は仮
-asset_no:      { value: TMP-C02XY12345,   provisional: true }
+acquisition: purchase          # purchase(新規購入) | transfer(他部署からの搬入)
+acquired_at: 2026-08-15
+computer_name: { value: dev-hogeo-tmp, provisional: true }   # 手入力。情シス採番前は仮
+asset_no:      { value: KARI-0012,     provisional: true }   # 手入力の仮番号
 ip_address: null
 status: license-pending        # registering → license-pending → active → retired
 tasks:
@@ -298,7 +299,7 @@ tasks:
 タスクの `blocking`(既定 true)は親レコードの完了判定に効く: `false` の
 タスクは完了判定を妨げないが、リマインドと監査の対象には含まれ続ける
 (例: PC の IP 登録は強制しないが未入力を追いかける)。詳細は
-[02](02-pc-purchase.md)。
+[02](02-pc-register.md)。
 
 ### 履歴・監査証跡
 

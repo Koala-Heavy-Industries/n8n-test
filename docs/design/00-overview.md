@@ -6,10 +6,10 @@
 
 1. **メンバーライフサイクル管理** — メンバーの追加・役割変更・削除。
    SAML/SSO ではカバーできない個別サービスの操作を n8n が担う。
-2. **開発PC購入時のタスク管理** — コンピュータ名・資産管理番号の記録
-   (情シス採番前は仮の値で先行し、正式化を追跡)、NetBox への登録、
-   必須ソフトのライセンス購入リマインド、IP アドレスの回収を申請起点で促し、
-   漏れを防ぐ。
+2. **開発PC登録時のタスク管理** — 新規購入・他部署からの搬入を問わず、
+   コンピュータ名・資産管理番号の記録(手入力。情シス採番前は仮の値で先行し、
+   正式化を追跡)、NetBox への登録、必須ソフトのライセンス購入リマインド、
+   IP アドレスの回収を登録起点で促し、漏れを防ぐ。
 
 ### 前提: IdP の位置づけ
 
@@ -32,8 +32,8 @@
 | GitHub Organization への招待・削除、Team 所属 | **n8n(API)** | SSOログインはできても Org/Team 所属は別管理 |
 | 有償ライセンスのシート購入・解約(JetBrains 等) | **n8n(手動タスク+リマインド)** | 購入・契約はAPI化が困難。漏れ防止が主目的 |
 | Claude アカウントの追加・削除 | **n8n(当面は手動タスク)** | Anthropic Admin API 導入で自動化へ昇格可能 |
-| NetBox へのデバイス登録・アカウント管理 | **n8n(API)** | PC購入フローの中核 |
-| PC購入時のチェックリスト(命名・登録・ライセンス) | **n8n** | SAMLとは無関係の運用タスク |
+| NetBox へのデバイス登録・アカウント管理 | **n8n(API)** | PC登録フローの中核 |
+| PC登録時のチェックリスト(仮情報の正式化・NetBox登録・ライセンス) | **n8n** | SAMLとは無関係の運用タスク |
 
 IdP は **Keycloak** に確定。コネクタは Keycloak Admin REST API を使う
 (ユーザー作成・グループ所属・停止。→ [05](05-environment.md))。
@@ -74,7 +74,7 @@ flowchart LR
     subgraph entry["入口(申請)"]
         A1[メンバー申請フォーム3種 台帳PRを自動作成]
         A2[直接PR エンジニア・緊急対応]
-        A4[PC購入登録フォーム]
+        A4[PC登録フォーム]
         A5[PC情報更新フォーム]
     end
 
@@ -115,20 +115,20 @@ flowchart LR
 |---|---|---|---|---|
 | member-request(追加・変更・削除フォーム) | 入口 | Form | 申請内容から台帳リポジトリへの PR を自動作成 | [01](01-member-lifecycle.md) |
 | reconcile | 中核 | Webhook(マージ)+日次 | 台帳の desired と state の差分を計算し、付与・剥奪を収束させる | [01](01-member-lifecycle.md) |
-| pc-purchase | 入口 | Form | PC購入登録。仮情報補完・NetBox登録・ライセンス等のタスク起票 | [02](02-pc-purchase.md) |
-| pc-update | 入口 | Form | PC情報更新(正式な資産管理番号・コンピュータ名、IPアドレス) | [02](02-pc-purchase.md) |
+| pc-register | 入口 | Form | PC登録(新規購入・他部署からの搬入)。NetBox登録・ライセンス等のタスク起票 | [02](02-pc-register.md) |
+| pc-update | 入口 | Form | PC情報更新(正式な資産管理番号・コンピュータ名、IPアドレス) | [02](02-pc-register.md) |
 | request-approval | サブ | Execute Workflow | 承認依頼(メンバー系= PR レビュー実装、汎用=再開リンク実装) | [04](04-notification-abstraction.md) |
 | notify | サブ | Execute Workflow | チャネル非依存の通知 | [04](04-notification-abstraction.md) |
 | ledger-read / ledger-write | サブ | Execute Workflow | 台帳アクセスの一元化 | [03](03-service-catalog.md) |
 | service-keycloak / service-github ほか | サブ | Execute Workflow | 自動実行系ハンドラ(コネクタ / PR生成 / 準備物生成) | [03](03-service-catalog.md) |
 | remind-scheduler | 定期 | Schedule(毎日) | 未完了タスクへのリマインド・エスカレーション | [04](04-notification-abstraction.md) |
-| weekly-audit | 定期 | Schedule(週次) | 未完了・期限超過の集計レポート | [01](01-member-lifecycle.md) / [02](02-pc-purchase.md) |
+| weekly-audit | 定期 | Schedule(週次) | 未完了・期限超過の集計レポート | [01](01-member-lifecycle.md) / [02](02-pc-register.md) |
 | consistency-audit | 定期 | Schedule(週次) | 実サービス(GitHub等)と台帳の突合 | [01](01-member-lifecycle.md) |
 
 ## ドキュメント構成
 
 - [01. メンバーライフサイクル](01-member-lifecycle.md)
-- [02. 開発PC購入フロー](02-pc-purchase.md)
+- [02. 開発PC登録フロー](02-pc-register.md)
 - [03. サービスカタログと台帳](03-service-catalog.md)
 - [04. 通知・承認の抽象化](04-notification-abstraction.md)
 - [05. 実行環境設計](05-environment.md)

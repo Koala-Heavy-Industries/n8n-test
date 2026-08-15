@@ -60,8 +60,8 @@ PC 台帳の実体は台帳リポジトリの `state/pcs/<資産管理番号>.ya
 - 仮の値を持つデバイスには NetBox で**タグ `provisional`** を付け、
   state 側にも項目ごとの `provisional` フラグを持つ(一覧性と監査のため)。
 - **正式化の経路は2つ**あり、どちらを使ってもよい:
-  1. **PC情報更新フォーム(pc-update)** — 資産管理番号(現在の値。仮でも可)で
-     対象を指定し、
+  1. **機器情報更新フォーム(device-update。PC・サーバ共通 → [07](07-servers.md))** —
+     資産管理番号(現在の値。仮でも可)で対象を指定し、
      正式な資産管理番号・コンピュータ名・IPアドレスを任意の組み合わせで
      部分更新する。n8n が NetBox を更新(name / asset_tag の書き換え、
      provisional タグ除去)し、state へ bot コミットする。
@@ -153,5 +153,5 @@ Source of Truth とする。** state には NetBox の device ID を持たせ、
 - キッティング項目(OS設定、MDM登録、セキュリティソフト導入)を
   必須ソフトカタログと同列の「セットアップタスクカタログ」として追加可能。
 - PC の退役・返却(メンバー削除フローとの連動: 返却確認 → NetBox status 変更)や
-  他部署への譲渡は、member-remove の manual タスクや pc-update の拡張として
+  他部署への譲渡は、member-remove の manual タスクや device-update の拡張として
   追加できる。

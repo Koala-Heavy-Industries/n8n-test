@@ -10,6 +10,9 @@
    コンピュータ名・資産管理番号の記録(手入力。情シス採番前は仮の値で先行し、
    正式化を追跡)、NetBox への登録、必須ソフトのライセンス購入リマインド、
    IP アドレスの回収を登録起点で促し、漏れを防ぐ。
+3. **サーバ・VM の一覧と IP の管理** — 物理サーバ(直接 OS / ハイパーバイザー)
+   と VM を NetBox で一元管理する。n8n は登録の入口・仮情報の正式化・
+   実態との突合を担う。
 
 ### 前提: IdP の位置づけ
 
@@ -75,7 +78,8 @@ flowchart LR
         A1[メンバー申請フォーム3種 台帳PRを自動作成]
         A2[直接PR エンジニア・緊急対応]
         A4[PC登録フォーム]
-        A5[PC情報更新フォーム]
+        A5[機器情報更新フォーム]
+        A6[サーバ・VM登録フォーム]
     end
 
     subgraph ledger["台帳(Git リポジトリ)"]
@@ -101,6 +105,7 @@ flowchart LR
     A2 --> D1
     A4 --> B4
     A5 --> B4
+    A6 --> B4
     D1 -->|レビュー・マージ = 承認| B0
     B0 --> B4
     B0 --> D2
@@ -116,7 +121,10 @@ flowchart LR
 | member-request(追加・変更・削除フォーム) | 入口 | Form | 申請内容から台帳リポジトリへの PR を自動作成 | [01](01-member-lifecycle.md) |
 | reconcile | 中核 | Webhook(マージ)+日次 | 台帳の desired と state の差分を計算し、付与・剥奪を収束させる | [01](01-member-lifecycle.md) |
 | pc-register | 入口 | Form | PC登録(新規購入・他部署からの搬入)。NetBox登録・ライセンス等のタスク起票 | [02](02-pc-register.md) |
-| pc-update | 入口 | Form | PC情報更新(正式な資産管理番号・コンピュータ名、IPアドレス) | [02](02-pc-register.md) |
+| device-update | 入口 | Form | 機器情報更新(PC・サーバ共通: 正式な資産管理番号・名前、IPアドレス) | [02](02-pc-register.md) / [07](07-servers.md) |
+| server-register | 入口 | Form | 物理サーバ登録(直接OS / ハイパーバイザー+クラスタ作成) | [07](07-servers.md) |
+| vm-register | 入口 | Form | VM登録(クラスタ所属・IP割当) | [07](07-servers.md) |
+| hypervisor-sync | 定期 | Schedule | ハイパーバイザー実態と NetBox の突合(安定後は自動同期へ昇格) | [07](07-servers.md) |
 | request-approval | サブ | Execute Workflow | 承認依頼(メンバー系= PR レビュー実装、汎用=再開リンク実装) | [04](04-notification-abstraction.md) |
 | notify | サブ | Execute Workflow | チャネル非依存の通知 | [04](04-notification-abstraction.md) |
 | ledger-read / ledger-write | サブ | Execute Workflow | 台帳アクセスの一元化 | [03](03-service-catalog.md) |
@@ -133,3 +141,4 @@ flowchart LR
 - [04. 通知・承認の抽象化](04-notification-abstraction.md)
 - [05. 実行環境設計](05-environment.md)
 - [06. GitHub(GHEC)連携設計](06-github-teams.md)
+- [07. サーバ・VM 管理設計](07-servers.md)

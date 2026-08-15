@@ -8,6 +8,8 @@
 2. **開発PC登録時のタスク管理** — 新規購入も他部署からの搬入も同じフローで登録。
    コンピュータ名・資産管理番号(手入力、仮→正式)・NetBox 登録・
    必須ソフトのライセンス購入リマインド・IP アドレスの回収
+3. **サーバ・VM の一覧と IP の管理** — 物理サーバ(直接 OS / ハイパーバイザー)
+   と VM を NetBox で一元管理し、登録の入口と実態との突合を n8n が担う
 
 ## ステータス
 
@@ -26,6 +28,7 @@
 | [04. 通知・承認の抽象化](docs/design/04-notification-abstraction.md) | チャネル後決めの仕組み、承認リンク方式、リマインドループ |
 | [05. 実行環境設計](docs/design/05-environment.md) | docker compose 構成、認証情報、実装ロードマップ |
 | [06. GitHub(GHEC)連携設計](docs/design/06-github-teams.md) | 非EMU前提、ネストTeam構造、命名規則、権限レベルとブランチ保護・CODEOWNERSの境界 |
+| [07. サーバ・VM 管理設計](docs/design/07-servers.md) | NetBoxでのモデリング(device・クラスタ・VM・IPAM)、登録フォーム、ハイパーバイザー実態との突合 |
 
 ## 設計上の重要な決定(サマリ)
 

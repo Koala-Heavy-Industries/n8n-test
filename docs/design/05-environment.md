@@ -53,9 +53,9 @@ flowchart LR
 2. Keycloak: realm 作成、役割マトリクスに対応するグループ作成、
    n8n 用サービスアカウントクライアント発行(realm-management の
    `manage-users` / `query-users` / `query-groups`)、SMTP を Mailpit に設定。
-3. NetBox: API Token 発行、マスタ登録(site、device role: `dev-pc`、
+3. NetBox: API Token 発行、マスタ登録(site、device role: `dev-pc` / `server`、
    manufacturer、既定 device_type: `generic-laptop`、タグ `provisional`、
-   IPAM の検証用プレフィックス)。
+   クラスタタイプ(ハイパーバイザー製品確定後)、IPAM の検証用プレフィックス)。
 4. 台帳リポジトリ(`LEDGER_REPO`)整備: ディレクトリ構成([03](03-service-catalog.md#台帳リポジトリgit))と
    カタログ初期データの投入、ブランチ保護(レビュー必須・自己承認禁止)、
    bot マシンアカウントと Token、CI(スキーマ検証・affiliation 制約・
@@ -84,6 +84,7 @@ flowchart LR
 | `GITHUB_ORG` | `koala-heavy-industries` | 招待・削除・突合の対象 Org |
 | `LEDGER_REPO` | `koala-heavy-industries/khi-ledger` | 台帳リポジトリ |
 | `KEYCLOAK_URL` / `KEYCLOAK_REALM` | `http://keycloak:8080` / `khi-dev` | プロジェクト IdP |
+| `HYPERVISOR_URL` 等 | (製品確定後) | hypervisor-sync 用 |
 | `NETBOX_URL` | `http://netbox:8000` | NetBox API |
 | `APPROVER_EMAILS` | `pm@example.com` | 承認者(申請者と分離) |
 | `ADMIN_EMAILS` | `it-admin@example.com` | エスカレーション・監査レポート宛先 |
@@ -104,13 +105,15 @@ flowchart LR
    Keycloak のみで一巡させる(ユーザー作成・グループ・停止・JIT 連鎖の確認)。
 5. **remind-scheduler**: state 走査 → 事後検証・自動クローズ → リマインド →
    エスカレーション、`contract_until`・空き枠の監視。
-6. **pc-register / pc-update**: NetBox 連携(重複チェック・登録・正式化)、
+6. **pc-register / device-update**: NetBox 連携(重複チェック・登録・正式化)、
    `state/pcs/` への記録。
-7. **コネクタ追加**: `service-github`(冪等性・error output の確認を含む)。
-8. **監査**: weekly-audit(desired ≠ state 一覧)/ consistency-audit
+7. **server-register / vm-register / hypervisor-sync**: サーバ・VM の登録と
+   NetBox 突合(ハイパーバイザー製品の確定後。→ [07](07-servers.md))。
+8. **コネクタ追加**: `service-github`(冪等性・error output の確認を含む)。
+9. **監査**: weekly-audit(desired ≠ state 一覧)/ consistency-audit
    (Keycloak・GitHub との突合)。
-9. **本番化**: チャネル決定後に notify の内部を差し替え、
-   実カタログ・実マトリクス・実メンバーを投入。
+10. **本番化**: チャネル決定後に notify の内部を差し替え、
+    実カタログ・実マトリクス・実メンバーを投入。
 
 各段階の完成条件は「Mailpit 上で通知・承認・リマインドの全メールが確認でき、
 台帳リポジトリの state が設計([01](01-member-lifecycle.md) /

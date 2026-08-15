@@ -30,7 +30,7 @@ flowchart TD
 
 入口フローの責務はタスク起票と通知まで。完了の追跡・リマインドは
 remind-scheduler([04](04-notification-abstraction.md))が担う。
-PC 台帳の実体は台帳リポジトリの `state/pcs/<serial>.yaml`
+PC 台帳の実体は台帳リポジトリの `state/pcs/<資産管理番号>.yaml`
 (bot が記録。→ [03](03-service-catalog.md#台帳リポジトリgit))。
 メンバー系と違い、PC 登録は宣言型ではなくイベント駆動の記録簿型のままとする。
 
@@ -41,10 +41,9 @@ PC 台帳の実体は台帳リポジトリの `state/pcs/<serial>.yaml`
 | 登録区分 | ✔ | ドロップダウン: 新規購入 / 他部署からの搬入 |
 | 利用者名 / 利用者メール | ✔ | 台帳の `members/` と突合(未登録ならワーニング) |
 | 機種・モデル | ✔ | 例: MacBook Pro 14 M4 |
-| シリアル番号 | ✔ | **PC の不変キー**。`state/pcs/<serial>.yaml` のファイル名と NetBox の serial に使う |
 | 取得日(購入日・搬入日) | ✔ | タスクの期限起算日 |
 | 用途 | ✔ | ドロップダウン: 開発 / 検証 / その他 |
-| 資産管理番号 | ✔ | **手入力**。情シス採番済みなら正式値、未定なら仮の値を入力 |
+| 資産管理番号 | ✔ | **手入力・PC の同定キー**(`state/pcs/<資産管理番号>.yaml` のファイル名)。情シス採番済みなら正式値、未定なら仮の値を入力 |
 | 資産管理番号は仮の値 | − | チェックボックス。仮なら正式化タスクを起票 |
 | コンピュータ名 | ✔ | **手入力**。同上 |
 | コンピュータ名は仮の値 | − | チェックボックス |
@@ -61,16 +60,20 @@ PC 台帳の実体は台帳リポジトリの `state/pcs/<serial>.yaml`
 - 仮の値を持つデバイスには NetBox で**タグ `provisional`** を付け、
   state 側にも項目ごとの `provisional` フラグを持つ(一覧性と監査のため)。
 - **正式化の経路は2つ**あり、どちらを使ってもよい:
-  1. **PC情報更新フォーム(pc-update)** — シリアルで対象を指定し、
+  1. **PC情報更新フォーム(pc-update)** — 資産管理番号(現在の値。仮でも可)で
+     対象を指定し、
      正式な資産管理番号・コンピュータ名・IPアドレスを任意の組み合わせで
      部分更新する。n8n が NetBox を更新(name / asset_tag の書き換え、
      provisional タグ除去)し、state へ bot コミットする。
   2. **NetBox を直接更新** — remind-scheduler の事後検証(verify: `api`)が
      「provisional タグが外れて正式値が入った」ことを検知し、タスクを
      自動クローズする。**更新の経路を強制しない**のがポイント。
-- コンピュータ名は仮→正式で変わるため、**PC の同定キーはシリアル番号**とする
-  (state のファイル名は `<serial>.yaml`、NetBox 側の追跡は device ID)。
-  名前は変わってよいデータとして扱う。
+- **PC の同定キーは資産管理番号**とし、state のファイル名を
+  `<資産管理番号>.yaml` とする(仮の番号のこともある)。正式化で番号が
+  変わったときは **bot がファイルをリネーム(git mv)して記録を引き継ぐ**。
+  ファイル名が変わっても NetBox 側の追跡は device ID が、履歴は git が
+  連続性を保つ。仮番号どうしの衝突は登録時の重複チェック(NetBox の
+  asset_tag)で防ぐ。
 
 ## IPアドレス
 
@@ -92,7 +95,7 @@ Source of Truth とする。** state には NetBox の device ID を持たせ、
 | 操作 | API | 備考 |
 |---|---|---|
 | 重複チェック | `GET /api/dcim/devices/?name=` `?asset_tag=` | 件数 > 0 なら申請者へ差し戻し(自動リネームはしない) |
-| デバイス登録 | `POST /api/dcim/devices/` | name / **asset_tag(資産管理番号)** / serial / device_type / role / site / tags(`provisional`) / comments(利用者・取得日・登録区分・申請元) |
+| デバイス登録 | `POST /api/dcim/devices/` | name / **asset_tag(資産管理番号)** / device_type / role / site / tags(`provisional`) / comments(利用者・取得日・登録区分・申請元) |
 | 正式化・更新 | `PATCH /api/dcim/devices/{id}` | name・asset_tag の書き換え、`provisional` タグ除去 |
 | IP 登録 | `POST /api/ipam/ip-addresses/` | IP を作成してデバイスに割当(簡易にはデバイス紐付けのみでも可) |
 
@@ -129,7 +132,7 @@ Source of Truth とする。** state には NetBox の device ID を持たせ、
 
 タスク起票時は、カタログの有効行ごとに
 「{コンピュータ名} / {利用者} 向けに {ソフト名} を購入する」というタスクを
-`state/pcs/<serial>.yaml` のタスク(kind: `pc-license`)として作成する。
+`state/pcs/<資産管理番号>.yaml` のタスク(kind: `pc-license`)として作成する。
 フォームで「導入済み」にチェックされたソフト(搬入PCなど)は起票しない。
 
 ## リマインドと完了

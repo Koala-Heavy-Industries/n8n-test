@@ -214,7 +214,7 @@ ledger-repo/
 │   └── pc-software.yaml     # PC 必須ソフトカタログ
 └── state/
     ├── members/<id>.yaml    # actual: 付与実態と未完了タスク(bot が記録)
-    └── pcs/<serial>.yaml    # PC 台帳(bot が記録。キーはシリアル番号)
+    └── pcs/<資産管理番号>.yaml  # PC 台帳(bot が記録。仮番号のこともある)
 ```
 
 ### 書き込み権限の規約
@@ -274,14 +274,14 @@ remind-scheduler や監査は `state/` を走査して横断ビューを作る�
 リマインドのたびに bot コミットが発生するが、小規模運用ではノイズとして許容する
 (気になったら remind メタデータだけ外部ストアに逃がす余地を残す)。
 
-### state/pcs/<serial>.yaml
+### state/pcs/<資産管理番号>.yaml
 
 PC 登録フローは宣言型ではなくイベント駆動の記録簿型のまま。
-**キーはシリアル番号**(コンピュータ名は仮→正式で変わりうるため、名前を
-キーにしない)。実機情報の正は NetBox。
+**キーは資産管理番号**(仮の番号のこともある)。正式化で番号が変わったら
+bot がファイルをリネーム(git mv)して記録を引き継ぐ(NetBox device ID と
+git 履歴が連続性を保つ)。実機情報の正は NetBox。
 
 ```yaml
-serial: C02XY12345
 netbox_device_id: 42
 user: hogeo@example.com
 acquisition: purchase          # purchase(新規購入) | transfer(他部署からの搬入)

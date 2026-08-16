@@ -57,18 +57,26 @@ flowchart LR
    manufacturer、既定 device_type: `generic-laptop`、タグ `provisional`、
    クラスタタイプ(ハイパーバイザー製品確定後)、IPAM の検証用プレフィックス)。
 4. 台帳リポジトリ(`LEDGER_REPO`)整備: ディレクトリ構成([03](03-service-catalog.md#台帳リポジトリgit))と
-   カタログ初期データの投入、ブランチ保護(レビュー必須・自己承認禁止)、
-   bot マシンアカウントと Token、CI(スキーマ検証・affiliation 制約・
-   権限差分プレビューコメント・`state/` の人手編集拒否)、マージ Webhook。
+   カタログ初期データの投入、ブランチ保護(レビュー必須・自己承認禁止・
+   **force push 禁止**)、bot マシンアカウントと Token、
+   **Rulesets による bot の書き込みパス制限(`state/` のみ)**、
+   CI(スキーマ検証・affiliation 制約・remove に `idp` を使わせない検証・
+   権限差分プレビューコメント・`catalog/` 変更時の影響範囲プレビュー・
+   `state/` の人手編集拒否)、マージ Webhook、
+   **リポジトリの閲覧範囲の限定**(→ [08](08-safeguards.md#台帳リポジトリの個人情報))。
 5. n8n: Credentials 登録(下記)、サブWF(notify / request-approval /
-   ledger-read / ledger-write)を先に作成し、リコンサイラ・入口フローから参照する。
+   ledger-read / ledger-write。`ledger-write` は**同時実行数 1**)を先に作成し、
+   リコンサイラ・入口フローから参照する。
+6. 安全装置の初期設定: `N8N_ENCRYPTION_KEY` の生成と別管理でのバックアップ、
+   n8n 管理者・編集者の最小化、外部監視サービスへのハートビート登録、
+   各 DB のバックアップ設定(→ [08](08-safeguards.md))。
 
 ## 認証情報の方針
 
 | Credential | 種別 | 権限・備考 |
 |---|---|---|
 | GitHub PAT(Org 管理用) | HTTP Header Auth / GitHub | `admin:org`(招待・削除・Team 操作)。マシンユーザー推奨 |
-| GitHub Token(台帳 bot 用) | HTTP Header Auth / GitHub | 台帳リポジトリへの PR 作成と `state/` への直接コミット(ブランチ保護バイパス)。Org 管理用とは分ける |
+| GitHub Token(台帳 bot 用) | HTTP Header Auth / GitHub | 台帳リポジトリへの PR 作成と `state/` への直接コミット(ブランチ保護バイパス)。Org 管理用とは分ける。**書き込み可能パスは Rulesets で `state/` に限定する**(→ [08](08-safeguards.md#脅威モデルと残余リスク)) |
 | Keycloak サービスアカウント | OAuth2 Client Credentials | realm-management の `manage-users` / `query-users` / `query-groups`。コネクタと事後検証で使用 |
 | NetBox Token | HTTP Header Auth | `Authorization: Token ...`。書き込み可 |
 | SMTP | SMTP | 検証: Mailpit(認証なし)。本番: チャネル決定後に差し替え |
@@ -76,6 +84,24 @@ flowchart LR
 
 - すべて n8n の Credentials に保存し、ワークフロー JSON には含めない。
 - `.env` はローカル検証専用とし、`.gitignore` に含める。`.env.example` をコミットする。
+- **`N8N_ENCRYPTION_KEY`**: n8n の credential 復号鍵。**紛失すると全 credential が
+  復元できず、漏洩すると全 credential が復号される**。n8n の DB とは
+  **別の場所にバックアップ**し、秘密情報として管理する。
+- **n8n 自体のアクセス制御**: n8n の管理者・編集者は最小限にする。
+  n8n はここに並ぶすべての特権を保持しており、**ワークフローを編集できる人は
+  台帳の承認プロセスを迂回できる**(→ [08](08-safeguards.md#脅威モデルと残余リスク))。
+
+## バックアップと復旧
+
+| 対象 | 内容 |
+|---|---|
+| n8n DB(Postgres) | ワークフロー・credential・実行履歴 |
+| `N8N_ENCRYPTION_KEY` | **DB とは別管理**。これがないと credential は復元できない |
+| Keycloak DB | ユーザー・グループ・クライアント設定 |
+| NetBox DB | 機器・VM・IPAM(実機情報の Source of Truth) |
+| 台帳リポジトリ | GitHub 上にあるが、ミラーを別途保持すると復旧が早い |
+
+リストア手順は**実際に試して**手順書に残す(→ [08](08-safeguards.md#監視の監視デッドマンスイッチ))。
 
 ## プレースホルダ一覧(実装時に置き換える値)
 
@@ -90,6 +116,8 @@ flowchart LR
 | `ADMIN_EMAILS` | `it-admin@example.com` | エスカレーション・監査レポート宛先 |
 | `LICENSE_ASSIGNEE` | `buy@example.com` | ライセンス購入タスクの既定担当 |
 | `REMIND_INTERVAL_DAYS` / `REMIND_MAX` | `3` / `3` | リマインド制御 |
+| `REVOKE_CIRCUIT_BREAKER` | `5` | 1実行での剥奪件数の上限。超過で停止し確認を求める(→ [08](08-safeguards.md#リコンサイラの安全装置)) |
+| `HEARTBEAT_URL` | (外部監視サービス) | デッドマンスイッチの ping 先 |
 
 ## 実装フェーズのロードマップ
 
@@ -97,12 +125,16 @@ flowchart LR
 
 1. **環境**: compose + `.env.example` 作成、n8n / Keycloak / NetBox / Mailpit
    起動確認、Keycloak の realm・グループ・サービスアカウント設定。
-2. **台帳リポジトリ**: 構成・スキーマ・カタログ初期データ・ブランチ保護・
-   bot アカウント・CI 検証(スキーマ / affiliation 制約 / 差分プレビュー)。
-3. **土台サブWF**: `ledger-read` / `ledger-write`(GitHub API 実装)、
+2. **台帳リポジトリ**: 構成・スキーマ・カタログ初期データ・ブランチ保護
+   (force push 禁止)・bot アカウントと Rulesets のパス制限・
+   CI 検証(スキーマ / affiliation 制約 / 差分プレビュー / 影響範囲プレビュー)。
+3. **土台サブWF**: `ledger-read` / `ledger-write`(GitHub API 実装。
+   同時実行数 1 と楽観的排他+リトライを含む)、
    `notify` / `request-approval`(Mailpit 宛て+PR 実装)。
 4. **リコンサイラ + service-keycloak**: 中核。追加 → 役割変更 → 削除を
-   Keycloak のみで一巡させる(ユーザー作成・グループ・停止・JIT 連鎖の確認)。
+   Keycloak のみで一巡させる(ユーザー作成・グループ・停止+セッション失効・
+   JIT 連鎖の確認)。**ドライラン(plan)モードとサーキットブレーカーを
+   この段階で実装する**(後付けにしない)。
 5. **remind-scheduler**: state 走査 → 事後検証・自動クローズ → リマインド →
    エスカレーション、`contract_until`・空き枠の監視。
 6. **pc-register / device-update**: NetBox 連携(重複チェック・登録・正式化)、
@@ -111,9 +143,11 @@ flowchart LR
    NetBox 突合(ハイパーバイザー製品の確定後。→ [07](07-servers.md))。
 8. **コネクタ追加**: `service-github`(冪等性・error output の確認を含む)。
 9. **監査**: weekly-audit(desired ≠ state 一覧)/ consistency-audit
-   (Keycloak・GitHub との突合)。
-10. **本番化**: チャネル決定後に notify の内部を差し替え、
-    実カタログ・実マトリクス・実メンバーを投入。
+   (Keycloak・GitHub との突合。outside collaborator・Org owner を含む)。
+10. **安全装置**: heartbeat(外部監視)、workflow-export-audit、
+    バックアップとリストア試験、recertification(→ [08](08-safeguards.md))。
+11. **本番化**: チャネル決定後に notify の内部を差し替え、
+    実カタログ・実マトリクス・実メンバーを投入。break-glass 手順の周知。
 
 各段階の完成条件は「Mailpit 上で通知・承認・リマインドの全メールが確認でき、
 台帳リポジトリの state が設計([01](01-member-lifecycle.md) /

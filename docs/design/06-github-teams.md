@@ -74,6 +74,19 @@ Team 名は Org 内で一意で、API・mention は slug(小文字英数とハ�
 | − | pm | `pm` | チーム横断。役割マトリクス側から付与、`all-members` 直下 |
 | − | admin | (Team なし) | Team ではなく org role: owner で付与 |
 
+### 未定義の(チーム, 役割)組合せの扱い
+
+`pm` の人が `teams: [alpha]` を持つ場合、テンプレートの展開結果
+(`alpha-pms`)はこの表に存在しない。**存在しない Team への付与を試みると
+実行時エラーになるため、CI で事前に弾く。**
+
+- チームマトリクスの `github` セルには、**役割ごとに展開可能な組合せを明示**する
+  (例: alpha は `developer` / `reviewer` のみ)。
+- 明示されていない組合せの `members/*.yaml` を CI が**エラー**にする
+  (黙ってスキップしない。付与漏れが静かに発生するのを防ぐ)。
+- 意図的に「そのチームではその役割に GitHub 権限を与えない」場合は、
+  マトリクスに**明示的な「付与なし」**として書く。未定義と区別する。
+
 ## リポジトリ権限と「レビュアーの力」の出どころ
 
 リポジトリ権限は read / triage / write / maintain / admin の5段階。
@@ -108,11 +121,43 @@ reviewers は devs の子として write を継承するため、この条件は
 なったら、リポジトリ設定を Terraform 等でコード化して `iac-pr` 方式
 ([03](03-service-catalog.md#分類の3軸))を足すのが筋。
 
+**ただし監査はスコープ外にしない。**
+リポジトリへの個別 collaborator 招待(outside collaborator)は
+**Team モデルを完全に迂回するアクセス経路**であり、権限レベルの管理を
+スコープ外にしたことと、その存在を検出しないことは別問題である。
+
+## 監査(consistency-audit の GitHub 部分)
+
+| 検査 | API | 判定 |
+|---|---|---|
+| Org メンバーの突合 | `GET /orgs/{org}/members` | 台帳にいない人が Org にいる / `left` の人が残っている → 異常 |
+| Team メンバーシップの突合 | `GET /orgs/{org}/teams/{slug}/members` | あるべき grant との差分 → 異常 |
+| **outside collaborator の検出** | `GET /orgs/{org}/outside_collaborators`、各リポジトリの `GET /repos/{owner}/{repo}/collaborators?affiliation=direct` | **存在自体を異常として報告**する(Team 経由でないアクセス。正当な例外は台帳の `extra_grants` に記録されているべき) |
+| **Org owner の検出** | `GET /orgs/{org}/members?role=admin` | 台帳で `admin` 役割でない owner → 異常。**高リスクのため日次**(→ [08](08-safeguards.md#監査頻度)) |
+| 保留中の招待 | `GET /orgs/{org}/invitations` | 長期未承諾の招待の可視化(誤ったユーザー名宛の招待の発見にもなる) |
+
+## GitHub ユーザー名の本人性
+
+`accounts.github` は申請者の自己申告で、CI が検証できるのは書式だけである。
+タイポや他人のユーザー名を書けば、**その相手に Org 招待が飛ぶ**。
+
+- 非 EMU では招待の承諾が必要なため、誤招待がそのままアクセスにはならない
+  (致命傷にはなりにくい)。しかし誤った相手に組織の存在と Team 名が露出する。
+- 手当て(実装フェーズで選択):
+  1. **招待をメールアドレス宛にする**(`POST /orgs/{org}/invitations` の `email`)
+     — 本人のメールアドレスは Keycloak と同じ値で検証済みのため、
+     ユーザー名の申告ミスの影響を受けない。承諾したアカウントを
+     `accounts.github` に**事後記録**する(bot が state に書く)。
+  2. ユーザー名申告を採る場合は、招待前に
+     `GET /users/{username}` で実在とプロフィールを確認し、
+     PR の差分プレビューに表示して承認者に目視確認させる。
+- **推奨は 1**(メール宛招待)。人が入力する識別子を1つ減らせる。
+
 ## コネクタ(service-github)の操作対応
 
 | 操作 | API | 備考 |
 |---|---|---|
-| add | `POST /orgs/{org}/invitations`(**team_ids に子 Team を指定**) | 招待の承諾と同時に Team 所属が成立する。承諾待ちの間は desired ≠ state が残り、日次リコンサイルが承諾後の収束を確認する |
+| add | `POST /orgs/{org}/invitations`(**team_ids に子 Team を指定**。宛先は本人のメールアドレス。上記「本人性」参照) | 招待の承諾と同時に Team 所属が成立する。承諾待ちの間は desired ≠ state が残り、日次リコンサイルが承諾後の収束を確認する |
 | change | `PUT` / `DELETE /orgs/{org}/teams/{team_slug}/memberships/{username}` | チーム異動・役割変更の差分適用。username は `members/*.yaml` の `accounts.github` |
 | remove | `DELETE /orgs/{org}/members/{username}` | Org からの削除で全 Team から同時に外れる |
 | verify | `GET /orgs/{org}/members`、`GET /orgs/{org}/teams/{team_slug}/members` | consistency-audit とタスク自動クローズに使用 |

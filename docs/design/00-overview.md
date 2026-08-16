@@ -2,7 +2,7 @@
 
 ## 背景と目的
 
-開発プロジェクト(n8n中心)の運用のうち、次の2領域を n8n で自動化し、対応漏れをなくす。
+開発プロジェクト(n8n中心)の運用のうち、次の3領域を n8n で自動化し、対応漏れをなくす。
 
 1. **メンバーライフサイクル管理** — メンバーの追加・役割変更・削除。
    SAML/SSO ではカバーできない個別サービスの操作を n8n が担う。
@@ -69,6 +69,13 @@ Keycloak は SCIM を標準では持たないため、SSO 対応 SaaS 側のア�
 5. **承認を挟む(申請者と承認者の分離)**
    権限付与・剥奪・削除は必ず承認ステップを通す。メンバー系の承認は
    台帳 PR のレビュー+マージとして実装する(→ [01](01-member-lifecycle.md))。
+   承認は原則1名で、復旧が困難な方向(`admin` 付与)のみ2名とする。
+6. **失敗の倒れる方向を設計し、自動化の特権を自覚する**
+   どの失敗が fail-open(アクセスが残る)に倒れるかを一覧で明示し、
+   受容したリスクは監査で補う。**n8n 自体が承認プロセスを迂回できる特権点**
+   であることを前提に、ワークフロー定義の監査・bot の書き込み範囲の強制・
+   リコンサイラのサーキットブレーカー・監視の監視を置く。
+   → [08. 統制と安全装置](08-safeguards.md)
 
 ## ワークフロー全体マップ
 
@@ -124,14 +131,17 @@ flowchart LR
 | device-update | 入口 | Form | 機器情報更新(PC・サーバ共通: 正式な資産管理番号・名前、IPアドレス) | [02](02-pc-register.md) / [07](07-servers.md) |
 | server-register | 入口 | Form | 物理サーバ登録(直接OS / ハイパーバイザー+クラスタ作成) | [07](07-servers.md) |
 | vm-register | 入口 | Form | VM登録(クラスタ所属・IP割当) | [07](07-servers.md) |
-| hypervisor-sync | 定期 | Schedule | ハイパーバイザー実態と NetBox の突合(安定後は自動同期へ昇格) | [07](07-servers.md) |
+| hypervisor-sync | 定期 | Schedule | ハイパーバイザー実態と NetBox の突合(自動同期への昇格は保留オプション) | [07](07-servers.md) |
 | request-approval | サブ | Execute Workflow | 承認依頼(メンバー系= PR レビュー実装、汎用=再開リンク実装) | [04](04-notification-abstraction.md) |
 | notify | サブ | Execute Workflow | チャネル非依存の通知 | [04](04-notification-abstraction.md) |
 | ledger-read / ledger-write | サブ | Execute Workflow | 台帳アクセスの一元化 | [03](03-service-catalog.md) |
 | service-keycloak / service-github ほか | サブ | Execute Workflow | 自動実行系ハンドラ(コネクタ / PR生成 / 準備物生成) | [03](03-service-catalog.md) |
 | remind-scheduler | 定期 | Schedule(毎日) | 未完了タスクへのリマインド・エスカレーション | [04](04-notification-abstraction.md) |
 | weekly-audit | 定期 | Schedule(週次) | 未完了・期限超過の集計レポート | [01](01-member-lifecycle.md) / [02](02-pc-register.md) |
-| consistency-audit | 定期 | Schedule(週次) | 実サービス(GitHub等)と台帳の突合 | [01](01-member-lifecycle.md) |
+| consistency-audit | 定期 | Schedule(週次。高リスク項目は日次) | 実サービス(Keycloak / GitHub 等)と台帳の突合。outside collaborator・Org owner の検出を含む | [01](01-member-lifecycle.md) / [06](06-github-teams.md) |
+| recertification | 定期 | Schedule(半期) | 全メンバーの権限の要否を上長・sponsor に確認し、変更は台帳 PR を自動作成 | [08](08-safeguards.md) |
+| workflow-export-audit | 定期 | Schedule(毎日) | n8n のワークフロー定義をエクスポートしてコミットし、差分を報告(n8n 自身の監査) | [08](08-safeguards.md) |
+| heartbeat | 定期 | Schedule(毎日) | 外部監視への死活 ping。途絶を**外部側**が検知して通報する | [08](08-safeguards.md) |
 
 ## ドキュメント構成
 
@@ -142,3 +152,4 @@ flowchart LR
 - [05. 実行環境設計](05-environment.md)
 - [06. GitHub(GHEC)連携設計](06-github-teams.md)
 - [07. サーバ・VM 管理設計](07-servers.md)
+- [08. 統制と安全装置](08-safeguards.md)

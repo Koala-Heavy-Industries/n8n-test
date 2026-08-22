@@ -1,0 +1,312 @@
+{
+  "id": "remindsched00001",
+  "name": "remind-scheduler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "21000000-0000-4000-8000-000000000002",
+      "name": "手動・他フローから",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -660,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { kind: 'members' } }];"
+      },
+      "id": "21000000-0000-4000-8000-000000000003",
+      "name": "読み取りの入力",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ledgerread00001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "21000000-0000-4000-8000-000000000004",
+      "name": "台帳を読む",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 未完了タスクを走査し、リマインド・エスカレーションの対象を選ぶ。\n// あわせて協力会社メンバーの契約期限も監視する。\n//\n// blocking: false のタスク(例: PC の IP 登録)はリマインドするが\n// エスカレーションはしない(「入力は強制しないが漏れは追いかける」)。\n// 設計: docs/design/04-notification-abstraction.md#リマインドループ共通型\n\nconst members = $input.all().map((i) => i.json).filter((m) => m.desired);\n\nconst intervalDays = Number($env.REMIND_INTERVAL_DAYS ?? 3);\nconst maxRemind = Number($env.REMIND_MAX ?? 3);\nconst adminTo = String($env.ADMIN_EMAILS ?? '').split(',').map((s) => s.trim()).filter(Boolean);\n\nconst now = new Date();\nconst days = (a, b) => Math.floor((a - b) / 86400000);\n\nconst notices = [];   // notify に渡すもの\nconst patches = [];   // state に書き戻すもの\n\nfor (const m of members) {\n  const d = m.desired;\n  const tasks = Array.isArray(m.state?.tasks) ? m.state.tasks : [];\n  let changed = false;\n\n  const nextTasks = tasks.map((t) => {\n    if (t.status !== 'open') return t;\n\n    const overdue = t.due ? days(now, new Date(t.due)) > 0 : false;\n    const last = t.last_reminded_at ? new Date(t.last_reminded_at) : null;\n    const sinceLast = last ? days(now, last) : Infinity;\n    if (sinceLast < intervalDays) return t;   // まだ間隔を空ける\n\n    const count = Number(t.remind_count ?? 0);\n    const blocking = t.blocking !== false;\n\n    // 期限超過かつ上限到達、かつ blocking ならエスカレーション\n    if (overdue && count >= maxRemind && blocking) {\n      notices.push({\n        to: adminTo,\n        level: 'escalation',\n        subject: `未完了のまま期限を大きく超過: ${t.subject}`,\n        body: [\n          `対象メンバー: ${d.name ?? m.id} (${m.id})`,\n          `タスク: ${t.subject}`,\n          `担当: ${t.assignee}`,\n          `期限: ${t.due}(${days(now, new Date(t.due))} 日超過)`,\n          `リマインド: ${count} 回送信済み`,\n          '',\n          '担当者が対応できない状態の可能性があります。管理者の介入が必要です。',\n        ].join('\\n'),\n      });\n      changed = true;\n      return { ...t, status: 'escalated', escalated_at: now.toISOString() };\n    }\n\n    // 通常のリマインド(上限に達していても blocking でなければ送り続ける)\n    if (count < maxRemind || !blocking) {\n      notices.push({\n        to: [t.assignee],\n        level: overdue ? 'warn' : 'info',\n        subject: overdue ? `期限超過: ${t.subject}` : `未完了のお知らせ: ${t.subject}`,\n        body: [\n          `対象メンバー: ${d.name ?? m.id} (${m.id})`,\n          t.steps ? `手順: ${t.steps}` : '',\n          `期限: ${t.due}${overdue ? '(超過しています)' : ''}`,\n          '',\n          `完了したらこちらを開いてください: ${t.complete_url}`,\n          blocking ? '' : '※ このタスクは必須ではありませんが、記録のためご対応ください。',\n        ].filter(Boolean).join('\\n'),\n      });\n      changed = true;\n      return { ...t, remind_count: count + 1, last_reminded_at: now.toISOString() };\n    }\n\n    return t;\n  });\n\n  // 協力会社メンバーの契約期限。期限前に sponsor へ更新確認を促す。\n  // 期限を過ぎてもアクセスは自動遮断しない(fail-open を意図的に受容。08 参照)。\n  if (d.status === 'active' && d.contract_until && d.sponsor) {\n    const remaining = -days(now, new Date(d.contract_until));\n    if (remaining <= 30) {\n      notices.push({\n        to: [d.sponsor],\n        level: remaining < 0 ? 'escalation' : 'warn',\n        subject: remaining < 0\n          ? `契約期限を超過しています: ${d.name ?? m.id}`\n          : `契約期限が近づいています(残り ${remaining} 日): ${d.name ?? m.id}`,\n        body: [\n          `対象: ${d.name ?? m.id} (${d.email}) / ${d.affiliation}`,\n          `契約期限: ${d.contract_until}`,\n          '',\n          '継続する場合は台帳の contract_until を更新する PR を、',\n          '終了する場合は status: left にする PR を出してください。',\n          remaining < 0 ? '\\n※ 期限を過ぎてもアクセスは自動停止しません。対応が必要です。' : '',\n        ].filter(Boolean).join('\\n'),\n      });\n    }\n  }\n\n  if (changed) {\n    patches.push({ kind: 'members', id: m.id, patch: { tasks: nextTasks }, reason: 'リマインド状況を更新' });\n  }\n}\n\nif (notices.length === 0) {\n  return [{ json: { __nonotice: true, patches } }];\n}\nreturn notices.map((n) => ({ json: { ...n, __patches: patches } }));"
+      },
+      "id": "21000000-0000-4000-8000-000000000005",
+      "name": "リマインド対象を選ぶ",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-notice",
+              "leftValue": "={{ $json.__nonotice ? 'no' : 'yes' }}",
+              "rightValue": "yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "21000000-0000-4000-8000-000000000006",
+      "name": "送るものがあるか",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "notify0000000001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "21000000-0000-4000-8000-000000000007",
+      "name": "通知を送る",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        440,
+        -120
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// リマインド回数などの更新を state に書き戻す入力を作る。\nlet patches = [];\ntry {\n  patches = $('リマインド対象を選ぶ').first().json.__patches ?? $('リマインド対象を選ぶ').first().json.patches ?? [];\n} catch (e) { patches = []; }\nreturn patches.length ? patches.map((json) => ({ json })) : [{ json: { __nowrite: true } }];"
+      },
+      "id": "21000000-0000-4000-8000-000000000008",
+      "name": "state 更新を組み立てる",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "need-write",
+              "leftValue": "={{ $json.__nowrite ? 'no' : 'yes' }}",
+              "rightValue": "yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "21000000-0000-4000-8000-000000000009",
+      "name": "書き込みが必要か",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ledgerwrite00001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "21000000-0000-4000-8000-00000000000a",
+      "name": "state を書き込む",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 実行サマリ。\nlet notices = [];\ntry { notices = $('リマインド対象を選ぶ').all().map((i) => i.json).filter((n) => !n.__nonotice); } catch (e) {}\n\nreturn [{ json: {\n  reminders: notices.filter((n) => n.level !== 'escalation').map((n) => `${n.to?.join(',')} — ${n.subject}`),\n  escalations: notices.filter((n) => n.level === 'escalation').map((n) => `${n.to?.join(',')} — ${n.subject}`),\n  updated: $input.all().map((i) => i.json).filter((w) => w?.ok).map((w) => w.path),\n}}];"
+      },
+      "id": "21000000-0000-4000-8000-00000000000b",
+      "name": "サマリを返す",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        -100
+      ]
+    }
+  ],
+  "connections": {
+    "手動・他フローから": {
+      "main": [
+        [
+          {
+            "node": "読み取りの入力",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "読み取りの入力": {
+      "main": [
+        [
+          {
+            "node": "台帳を読む",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "台帳を読む": {
+      "main": [
+        [
+          {
+            "node": "リマインド対象を選ぶ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "リマインド対象を選ぶ": {
+      "main": [
+        [
+          {
+            "node": "送るものがあるか",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "送るものがあるか": {
+      "main": [
+        [
+          {
+            "node": "通知を送る",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "state 更新を組み立てる",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "通知を送る": {
+      "main": [
+        [
+          {
+            "node": "state 更新を組み立てる",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "state 更新を組み立てる": {
+      "main": [
+        [
+          {
+            "node": "書き込みが必要か",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "書き込みが必要か": {
+      "main": [
+        [
+          {
+            "node": "state を書き込む",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "サマリを返す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "state を書き込む": {
+      "main": [
+        [
+          {
+            "node": "サマリを返す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 900
+  }
+}

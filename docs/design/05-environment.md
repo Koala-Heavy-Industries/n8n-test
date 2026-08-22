@@ -60,6 +60,8 @@ flowchart LR
 | **サブワークフローは active でないと呼べない** | Execute Workflow から呼ぶ側・呼ばれる側ともに有効化が必要(`n8n update:workflow --id=<id> --active=true` のあと再起動)。`scripts/deploy-workflows.py` がインポート・有効化・再起動をまとめて行う |
 | **CLI に `delete:workflow` は無い** | n8n 2.x では提供されない。検証で作った一時ワークフローの削除は DB から直接行う(`scripts/run-workflow.py` が実施) |
 | **Wait を含むフローは CLI 実行では検証できない** | `n8n execute` は一発限りのプロセスなので、実行が待機に入ると再開できない。稼働中インスタンスで動かす必要があるため、Webhook トリガーの一時ワークフローから呼び出して検証する(承認リンクのクリックまで通しで確認できる) |
+| **多段のサブワークフロー呼び出しは CLI 実行で不安定** | `n8n execute` から Execute Workflow を多段に辿るワークフロー(remind-scheduler → ledger-read/notify/ledger-write)は、ノードが1つも実行されないまま crashed になることがある。稼働中インスタンスで動かせば正常に動作するため、Webhook トリガーの一時ワークフローから呼び出して検証する |
+| **スケジュールトリガーはサブワークフローに同居させない** | Schedule トリガーと Execute Workflow トリガーを同じワークフローに置くと CLI 実行が起動しない。定期実行は `cron-daily` に分離し、各処理は純粋なサブワークフローに保つ(テスト容易性のためにも有効) |
 | **resume URL は署名付きで、既にクエリを含む** | `$execution.resumeUrl` は `?signature=<HMAC>` を含む。承認/却下のパラメータは `&` で連結する(→ [04](04-notification-abstraction.md#チャネル非依存の承認完了報告方式)) |
 | Keycloak のブートストラップ変数 | Keycloak 26 では `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD`(旧 `KEYCLOAK_ADMIN*` は非推奨) |
 

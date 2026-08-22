@@ -33,6 +33,8 @@ services:
       # Code ノードから YAML を読み書きするために許可する(台帳が YAML のため)。
       # yaml パッケージは n8n の依存として同梱されている。
       NODE_FUNCTION_ALLOW_EXTERNAL: "yaml"
+      # 完了リンクのトークン生成に使う
+      NODE_FUNCTION_ALLOW_BUILTIN: "crypto"
       # ワークフローから $env で設定値を参照する(下の設定値を注入するため)。
       # n8n は既にすべての credential を保持する信頼境界なので、
       # ここで env を開けても脅威モデルは変わらない(docs/design/08-safeguards.md)。

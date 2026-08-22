@@ -23,7 +23,8 @@
 | 2. 台帳リポジトリ([khi-ledger](https://github.com/Koala-Heavy-Industries/khi-ledger)) | 🟡 構成とカタログ投入済み。CI 検証は未実装 |
 | 3. 土台サブWF | ✅ 完了 — `ledger-read` / `ledger-write` / `notify` / `request-approval` すべて実機で動作確認 |
 | 4. リコンサイラ + service-keycloak | ✅ 完了 — 台帳の変更が Keycloak に反映されるところまで実機で確認 |
-| 5〜11(リマインド、PC/サーバ、監査、安全装置ほか) | ⬜ 未着手 |
+| 5. remind-scheduler・タスク起票・完了リンク | ✅ 完了 — 起票→リマインド→完了→収束、エスカレーションまで確認 |
+| 6〜11(PC/サーバ、service-github、監査、安全装置ほか) | ⬜ 未着手 |
 
 → [実装ロードマップ](docs/design/05-environment.md#実装フェーズのロードマップ)
 

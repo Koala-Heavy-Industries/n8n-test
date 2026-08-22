@@ -1,0 +1,223 @@
+{
+  "id": "taskcomplete0001",
+  "name": "task-complete",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "task-complete",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "11000000-0000-4000-8000-000000000001",
+      "name": "完了リンク",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        0
+      ],
+      "webhookId": "c9f5e3a1-7b62-4f18-9d34-8e1a2b5c7d09"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 担当者が通知内の完了リンクを開いたときに実行される。\n// クエリ: member, task, token\n// token は起票時に発行した使い捨ての値で、URL を知らない第三者が\n// 勝手にタスクを閉じられないようにするための最低限の確認。\n// 設計: docs/design/04-notification-abstraction.md\n\nconst q = $input.first()?.json?.query ?? {};\nconst memberId = q.member;\nconst taskId = q.task;\nconst token = q.token;\n\nif (!memberId || !taskId || !token) {\n  throw new Error('task-complete: member / task / token が必要です');\n}\n\nreturn [{ json: { kind: 'members', id: memberId, taskId, token } }];"
+      },
+      "id": "11000000-0000-4000-8000-000000000002",
+      "name": "リンクを解釈する",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ledgerread00001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "11000000-0000-4000-8000-000000000003",
+      "name": "台帳を読む",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// タスクを done にし、そのサービスの grant を state に反映する patch を作る。\n// grant を書くことでリコンサイラの差分が解消し、以後この操作は再実行されない\n// (人手の作業でも、完了すれば宣言的モデルに合流する)。\n\nconst ctx = $('リンクを解釈する').first().json;\nconst rec = $input.first()?.json;\n\nif (!rec || !rec.state) {\n  throw new Error(`task-complete: ${ctx.id} の state が見つかりません`);\n}\n\nconst tasks = Array.isArray(rec.state.tasks) ? rec.state.tasks : [];\nconst task = tasks.find((t) => t.id === ctx.taskId);\n\nif (!task) throw new Error(`task-complete: タスク ${ctx.taskId} が見つかりません`);\n\n// 完了済みの判定をトークン検証より先に行う。完了時にトークンを消すため、\n// リンクを二度開いてもエラーではなく「完了済み」と案内できる(冪等)。\nif (task.status === 'done') {\n  return [{ json: { __alreadyDone: true, subject: task.subject } }];\n}\nif (task.token !== ctx.token) throw new Error('task-complete: トークンが一致しません');\n\nconst now = new Date().toISOString();\nconst nextTasks = tasks.map((t) => (t.id === ctx.taskId\n  ? { ...t, status: 'done', completed_at: now, token: null, complete_url: null }\n  : t));\n\nconst grants = {};\nif (task.service) {\n  // remove 操作の完了なら grant は空になる\n  grants[task.service] = task.operation === 'remove' ? [] : (task.grants ?? []);\n}\n\nreturn [{ json: {\n  kind: 'members',\n  id: ctx.id,\n  patch: { tasks: nextTasks, grants, updated_at: now },\n  reason: `タスク完了: ${task.id}`,\n  __subject: task.subject,\n}}];"
+      },
+      "id": "11000000-0000-4000-8000-000000000004",
+      "name": "完了として記録する",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "not-done-yet",
+              "leftValue": "={{ $json.__alreadyDone ? 'done' : 'new' }}",
+              "rightValue": "new",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "11000000-0000-4000-8000-000000000005",
+      "name": "未完了か",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ledgerwrite00001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "11000000-0000-4000-8000-000000000006",
+      "name": "台帳に書く",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        660,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const subject = $('完了として記録する').first().json.__subject ?? '';\nreturn [{ json: {\n  ok: true,\n  message: `完了として記録しました: ${subject}`,\n}}];"
+      },
+      "id": "11000000-0000-4000-8000-000000000007",
+      "name": "完了応答",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 二重クリックなど。既に完了しているだけなので成功として返す(冪等)。\nconst subject = $input.first().json.subject ?? '';\nreturn [{ json: { ok: true, message: `このタスクは既に完了しています: ${subject}` } }];"
+      },
+      "id": "11000000-0000-4000-8000-000000000008",
+      "name": "既に完了",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        120
+      ]
+    }
+  ],
+  "connections": {
+    "完了リンク": {
+      "main": [
+        [
+          {
+            "node": "リンクを解釈する",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "リンクを解釈する": {
+      "main": [
+        [
+          {
+            "node": "台帳を読む",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "台帳を読む": {
+      "main": [
+        [
+          {
+            "node": "完了として記録する",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "完了として記録する": {
+      "main": [
+        [
+          {
+            "node": "未完了か",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "未完了か": {
+      "main": [
+        [
+          {
+            "node": "台帳に書く",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "既に完了",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "台帳に書く": {
+      "main": [
+        [
+          {
+            "node": "完了応答",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

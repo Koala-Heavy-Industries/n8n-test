@@ -79,7 +79,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// あるべき grant 集合 = 役割マトリクス ∪ ⋃チームマトリクス ∪ extra_grants\n// これと state の付与実態を比べ、実行すべき操作だけをアイテムに展開する。\n// status: left のメンバーは「あるべき grant = 空」なので、差分が全剥奪になる。\n\nconst catalog = {};\nfor (const it of $('カタログを読む').all()) catalog[it.json.id] = it.json.desired;\n\nconst services = catalog.services?.services ?? [];\nconst roles = catalog['role-matrix']?.roles ?? {};\nconst teams = catalog['team-matrix']?.teams ?? {};\n\n// カタログの connector 名 → n8n のワークフロー ID。\n// 未対応のコネクタは実行せず skipped として可視化する(黙って無視しない)。\nconst CONNECTORS = { 'service-keycloak': 'svckeycloak00001' };\n\nconst members = $input.all().map((i) => i.json).filter((m) => m.desired);\n\nconst actions = [];\nconst skipped = [];\nconst manual = [];\nlet revocationCount = 0;\n\nfor (const m of members) {\n  const d = m.desired;\n  const state = m.state ?? {};\n  const isLeft = d.status === 'left';\n\n  for (const svc of services) {\n    if (svc.enabled === false) continue;\n\n    // あるべき grant を組み立てる\n    const desired = [];\n    if (!isLeft) {\n      const fromRole = roles[d.role]?.[svc.service_id];\n      if (fromRole) desired.push(fromRole);\n      for (const t of (d.teams ?? [])) {\n        const cell = teams[t]?.[svc.service_id];\n        const v = (cell && typeof cell === 'object' && !Array.isArray(cell)) ? cell[d.role] : cell;\n        if (v) desired.push(v);\n      }\n      for (const eg of (d.extra_grants ?? [])) {\n        if (eg.service === svc.service_id && eg.grant) desired.push(eg.grant);\n      }\n    }\n    const want = [...new Set(desired)].sort();\n    const have = [...new Set(state.grants?.[svc.service_id] ?? [])].sort();\n\n    if (JSON.stringify(want) === JSON.stringify(have)) continue; // 収束済み\n\n    revocationCount += have.filter((g) => !want.includes(g)).length;\n\n    const operation = isLeft ? 'remove' : (have.length > 0 ? 'change' : 'add');\n    const spec = svc.operations?.[operation];\n    if (!spec) continue;\n\n    const entry = {\n      memberId: m.id,\n      serviceId: svc.service_id,\n      operation,\n      member: { id: m.id, email: d.email, name: d.name },\n      desired: want,\n      current: have,\n    };\n\n    if (spec.execute === 'api' && CONNECTORS[spec.connector]) {\n      actions.push({ ...entry, connectorWorkflowId: CONNECTORS[spec.connector] });\n    } else if (spec.execute === 'api') {\n      skipped.push({ ...entry, reason: `コネクタ ${spec.connector} は未実装` });\n    } else {\n      manual.push({ ...entry, reason: `execute=${spec.execute} のためタスク化が必要(remind-scheduler の実装後)` });\n    }\n  }\n}\n\n// サーキットブレーカー: 一度に大量の剥奪が出たら止めて人の確認を求める。\n// マトリクスの編集ミスや差分計算の不具合で全員が一斉剥奪されるのを防ぐ。\nconst limit = Number($env.REVOKE_CIRCUIT_BREAKER ?? 5);\nif (revocationCount > limit) {\n  throw new Error(`reconcile: 剥奪が ${revocationCount} 件で上限 ${limit} を超えました。カタログの変更ミスの可能性があるため停止します(意図した一括処理なら REVOKE_CIRCUIT_BREAKER を一時的に上げてください)`);\n}\n\nif (actions.length === 0) {\n  // 実行対象が無くてもサマリを返せるよう、1件だけ空アイテムを流す\n  return [{ json: { __noop: true, actions: [], skipped, manual, revocationCount } }];\n}\n\nreturn actions.map((json) => ({ json: { ...json, __plan: { skipped, manual, revocationCount } } }));"
+        "jsCode": "// あるべき grant 集合 = 役割マトリクス ∪ ⋃チームマトリクス ∪ extra_grants\n// これと state の付与実態を比べ、実行すべき操作を決める。\n// status: left のメンバーは「あるべき grant = 空」なので、差分が全剥奪になる。\n//\n// 出力は常に「type: connector」か「type: none」のアイテム。\n// 手動サービスのタスク仕様と既存タスクは __plan に載せ、後段でまとめて state に書く。\n\nconst crypto = require('crypto');\n\nconst catalog = {};\nfor (const it of $('カタログを読む').all()) catalog[it.json.id] = it.json.desired;\n\nconst services = catalog.services?.services ?? [];\nconst roles = catalog['role-matrix']?.roles ?? {};\nconst teams = catalog['team-matrix']?.teams ?? {};\n\n// カタログの connector 名 → n8n のワークフロー ID。\n// 未対応のコネクタは実行せず skipped として可視化する(黙って無視しない)。\nconst CONNECTORS = { 'service-keycloak': 'svckeycloak00001' };\n\nconst members = $input.all().map((i) => i.json).filter((m) => m.desired);\n\nconst actions = [];\nconst skipped = [];\nconst manualTasks = [];\nconst existingTasks = {};\nlet revocationCount = 0;\n\nconst webhookBase = String($env.WEBHOOK_URL ?? 'http://localhost:5678/').replace(/\\/$/, '');\nconst today = new Date();\nconst isoDate = (d) => d.toISOString().slice(0, 10);\n\nfor (const m of members) {\n  const d = m.desired;\n  const state = m.state ?? {};\n  const isLeft = d.status === 'left';\n  existingTasks[m.id] = Array.isArray(state.tasks) ? state.tasks : [];\n\n  for (const svc of services) {\n    if (svc.enabled === false) continue;\n\n    const desired = [];\n    if (!isLeft) {\n      const fromRole = roles[d.role]?.[svc.service_id];\n      if (fromRole) desired.push(fromRole);\n      for (const t of (d.teams ?? [])) {\n        const cell = teams[t]?.[svc.service_id];\n        const v = (cell && typeof cell === 'object' && !Array.isArray(cell)) ? cell[d.role] : cell;\n        if (v) desired.push(v);\n      }\n      for (const eg of (d.extra_grants ?? [])) {\n        if (eg.service === svc.service_id && eg.grant) desired.push(eg.grant);\n      }\n    }\n    const want = [...new Set(desired)].sort();\n    const have = [...new Set(state.grants?.[svc.service_id] ?? [])].sort();\n    if (JSON.stringify(want) === JSON.stringify(have)) continue; // 収束済み\n\n    revocationCount += have.filter((g) => !want.includes(g)).length;\n\n    const operation = isLeft ? 'remove' : (have.length > 0 ? 'change' : 'add');\n    const spec = svc.operations?.[operation];\n    if (!spec) continue;\n\n    const entry = {\n      memberId: m.id,\n      serviceId: svc.service_id,\n      operation,\n      member: { id: m.id, email: d.email, name: d.name },\n      desired: want,\n      current: have,\n    };\n\n    if (spec.execute === 'api' && CONNECTORS[spec.connector]) {\n      actions.push({ ...entry, connectorWorkflowId: CONNECTORS[spec.connector] });\n      continue;\n    }\n    if (spec.execute === 'api') {\n      skipped.push({ ...entry, reason: `コネクタ ${spec.connector} は未実装` });\n      continue;\n    }\n\n    // 人手が必要な操作はタスクとして起票する。\n    // id を (サービス:操作) で決めるため、日次で再実行しても重複しない。\n    const taskId = `${svc.service_id}:${operation}`;\n    const tpl = spec.task_template ?? {};\n    const due = new Date(today);\n    due.setDate(due.getDate() + Number(tpl.due_days ?? 7));\n\n    const render = (s) => String(s ?? '')\n      .replaceAll('{member}', d.name ?? m.id)\n      .replaceAll('{grant}', (want.length ? want : have).join(', '));\n\n    manualTasks.push({\n      memberId: m.id,\n      task: {\n        id: taskId,\n        kind: `member-${operation}`,\n        service: svc.service_id,\n        operation,\n        subject: render(tpl.subject) || `${d.name ?? m.id}: ${svc.name ?? svc.service_id} の ${operation}`,\n        steps: render(tpl.steps),\n        assignee: $env[tpl.assignee] || tpl.assignee || $env.ADMIN_EMAILS,\n        due: isoDate(due),\n        status: 'open',\n        verify: spec.verify ?? 'human',\n        blocking: spec.blocking !== false,\n        grants: want,          // 完了時に state.grants へ反映する値\n        remind_count: 0,\n        last_reminded_at: null,\n        token: crypto.randomBytes(16).toString('hex'),\n        created_at: new Date().toISOString(),\n      },\n      webhookBase,\n    });\n  }\n}\n\n// サーキットブレーカー: 一度に大量の剥奪が出たら止めて人の確認を求める。\n// マトリクスの編集ミスや差分計算の不具合で全員が一斉剥奪されるのを防ぐ。\nconst limit = Number($env.REVOKE_CIRCUIT_BREAKER ?? 5);\nif (revocationCount > limit) {\n  throw new Error(`reconcile: 剥奪が ${revocationCount} 件で上限 ${limit} を超えました。カタログの変更ミスの可能性があるため停止します(意図した一括処理なら REVOKE_CIRCUIT_BREAKER を一時的に上げてください)`);\n}\n\nconst plan = { skipped, manualTasks, existingTasks, revocationCount };\n\nif (actions.length === 0) {\n  return [{ json: { type: 'none', __plan: plan } }];\n}\nreturn actions.map((json) => ({ json: { type: 'connector', ...json, __plan: plan } }));"
       },
       "id": "01000000-0000-4000-8000-000000000006",
       "name": "差分を計算する",
@@ -102,8 +102,8 @@
           "conditions": [
             {
               "id": "has-actions",
-              "leftValue": "={{ $json.__noop ? 'noop' : 'run' }}",
-              "rightValue": "run",
+              "leftValue": "={{ $json.type }}",
+              "rightValue": "connector",
               "operator": {
                 "type": "string",
                 "operation": "equals"
@@ -145,7 +145,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// コネクタの結果を state への patch に変換する。\n// 成功なら grants を更新し、失敗は記録して次の日次リコンサイルに委ねる\n// (desired ≠ state が残るので自動的に再試行される)。\nconst plan = $('差分を計算する').all().map((i) => i.json);\nconst results = $input.all().map((i) => i.json);\n\nconst byMember = new Map();\n\nplan.forEach((p, i) => {\n  const r = results[i] ?? {};\n  const ok = r.ok === true;\n\n  if (!byMember.has(p.memberId)) {\n    byMember.set(p.memberId, { grants: {}, failures: {}, applied: [] });\n  }\n  const acc = byMember.get(p.memberId);\n\n  if (ok) {\n    acc.grants[p.serviceId] = p.desired;\n    acc.applied.push(`${p.serviceId}:${p.operation}`);\n    acc.failures[p.serviceId] = null;   // 解消した失敗記録を消す(null = キー削除)\n  } else {\n    acc.failures[p.serviceId] = String(r.detail ?? r.error?.message ?? 'コネクタが失敗しました').slice(0, 200);\n  }\n});\n\nconst now = new Date().toISOString();\nreturn [...byMember.entries()].map(([memberId, acc]) => ({ json: {\n  kind: 'members',\n  id: memberId,\n  patch: {\n    grants: acc.grants,\n    // 失敗が1件も無ければ failures ごと削除する(null = キー削除)\n    failures: Object.values(acc.failures).some((v) => v !== null) ? acc.failures : null,\n    updated_at: now,\n  },\n  reason: acc.applied.length ? acc.applied.join(', ') : '適用結果を記録',\n}}));"
+        "jsCode": "// コネクタの結果と手動タスクを、メンバーごとの state patch にまとめる。\n// 成功なら grants を更新し、失敗は記録して次の日次リコンサイルに委ねる\n// (desired ≠ state が残るので自動的に再試行される)。\n\nconst planItems = $('差分を計算する').all().map((i) => i.json);\nconst meta = planItems[0]?.__plan ?? {};\nconst connectorPlan = planItems.filter((p) => p.type === 'connector');\nconst results = $input.all().map((i) => i.json);\nconst hasConnectorResults = !results.some((r) => r?.__noConnector);\n\nconst acc = new Map();\nconst get = (id) => {\n  if (!acc.has(id)) acc.set(id, { grants: {}, failures: {}, applied: [], tasks: null });\n  return acc.get(id);\n};\n\nif (hasConnectorResults) {\n  connectorPlan.forEach((p, i) => {\n    const r = results[i] ?? {};\n    const a = get(p.memberId);\n    if (r.ok === true) {\n      a.grants[p.serviceId] = p.desired;\n      a.applied.push(`${p.serviceId}:${p.operation}`);\n      a.failures[p.serviceId] = null;   // 解消した失敗記録を消す(null = キー削除)\n    } else {\n      a.failures[p.serviceId] = String(r.detail ?? r.error?.message ?? 'コネクタが失敗しました').slice(0, 200);\n    }\n  });\n}\n\n// 手動タスクを起票する。同じ id の open なタスクがあれば作り直さない(日次実行で重複しない)。\nfor (const mt of (meta.manualTasks ?? [])) {\n  const a = get(mt.memberId);\n  const existing = a.tasks ?? [...(meta.existingTasks?.[mt.memberId] ?? [])];\n  const already = existing.find((t) => t.id === mt.task.id && t.status === 'open');\n  if (!already) {\n    a.tasksChanged = true;\n    const url = `${mt.webhookBase}/webhook/task-complete`\n      + `?member=${encodeURIComponent(mt.memberId)}`\n      + `&task=${encodeURIComponent(mt.task.id)}`\n      + `&token=${mt.task.token}`;\n    existing.push({ ...mt.task, complete_url: url });\n    a.applied.push(`task:${mt.task.id}`);\n  }\n  a.tasks = existing;\n}\n\nconst now = new Date().toISOString();\nconst patches = [...acc.entries()]\n  // 実質的な変更が無いメンバーは書き込まない(毎回コミットが増えるのを防ぐ)\n  .filter(([, a]) => Object.keys(a.grants).length || a.tasksChanged\n    || Object.values(a.failures).some((v) => v !== null))\n  .map(([memberId, a]) => ({ json: {\n  kind: 'members',\n  id: memberId,\n  patch: {\n    ...(Object.keys(a.grants).length ? { grants: a.grants } : {}),\n    ...(a.tasksChanged ? { tasks: a.tasks } : {}),\n    failures: Object.values(a.failures).some((v) => v !== null) ? a.failures : null,\n    updated_at: now,\n  },\n  reason: a.applied.length ? a.applied.join(', ') : '適用結果を記録',\n}}));\n\n// 書き込むものが無くてもサマリを返せるよう、マーカーを1件流す\nreturn patches.length ? patches : [{ json: { __nowrite: true } }];"
       },
       "id": "01000000-0000-4000-8000-000000000009",
       "name": "state への patch を作る",
@@ -177,7 +177,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 実行サマリ。成功と失敗を区別し、未対応コネクタ・手動対応も見える形で返す。\nconst plan = $('差分を計算する').all().map((i) => i.json);\nconst results = $('コネクタを実行').all().map((i) => i.json);\nconst meta = plan[0]?.__plan ?? {};\nconst writes = $input.all().map((i) => i.json);\n\nconst applied = [];\nconst failed = [];\nplan.forEach((p, i) => {\n  if (!p.serviceId) return;\n  const label = `${p.memberId}/${p.serviceId}:${p.operation}`;\n  if (results[i]?.ok === true) applied.push(label);\n  else failed.push(`${label} — ${String(results[i]?.detail ?? results[i]?.error?.message ?? '失敗').slice(0, 120)}`);\n});\n\nreturn [{ json: {\n  applied,\n  failed,\n  written: writes.filter((w) => w.ok).map((w) => w.path),\n  skipped: (meta.skipped ?? []).map((s) => `${s.memberId}/${s.serviceId}: ${s.reason}`),\n  manual: (meta.manual ?? []).map((s) => `${s.memberId}/${s.serviceId}: ${s.reason}`),\n  revocations: meta.revocationCount ?? 0,\n}}];"
+        "jsCode": "// 実行サマリ。成功・失敗・起票したタスクを区別して返す。\nconst planItems = $('差分を計算する').all().map((i) => i.json);\nconst meta = planItems[0]?.__plan ?? {};\nconst connectorPlan = planItems.filter((p) => p.type === 'connector');\n// コネクタを実行しない経路もあるため、未実行なら空として扱う\nlet results = [];\ntry { results = $('コネクタを実行').all().map((i) => i.json); } catch (e) { results = []; }\nconst writes = $input.all().map((i) => i.json).filter((w) => w && !w.__nowrite);\n\nconst applied = [];\nconst failed = [];\nconnectorPlan.forEach((p, i) => {\n  const label = `${p.memberId}/${p.serviceId}:${p.operation}`;\n  if (results[i]?.ok === true) applied.push(label);\n  else failed.push(`${label} — ${String(results[i]?.detail ?? results[i]?.error?.message ?? '失敗').slice(0, 120)}`);\n});\n\nreturn [{ json: {\n  applied,\n  failed,\n  // 新規に起票したものだけを載せる(既に open なタスクは再掲しない)\n  tasks: (meta.manualTasks ?? [])\n    .filter((t) => !(meta.existingTasks?.[t.memberId] ?? []).some((e) => e.id === t.task.id && e.status === 'open'))\n    .map((t) => `${t.memberId}/${t.task.id} (期限 ${t.task.due}, 担当 ${t.task.assignee})`),\n  written: writes.filter((w) => w.ok).map((w) => w.path),\n  skipped: (meta.skipped ?? []).map((s) => `${s.memberId}/${s.serviceId}: ${s.reason}`),\n  revocations: meta.revocationCount ?? 0,\n}}];"
       },
       "id": "01000000-0000-4000-8000-00000000000b",
       "name": "サマリを返す",
@@ -190,15 +190,48 @@
     },
     {
       "parameters": {
-        "jsCode": "// 差分なし。収束済みであることを返す。\nconst j = $input.first().json;\nreturn [{ json: {\n  applied: [],\n  written: [],\n  skipped: j.skipped ?? [],\n  manual: j.manual ?? [],\n  revocations: 0,\n  detail: 'すべて収束済み',\n}}];"
+        "jsCode": "// コネクタ実行が無い場合もタスク起票のために後段へ流す。\nreturn [{ json: { __noConnector: true } }];"
       },
       "id": "01000000-0000-4000-8000-00000000000c",
-      "name": "収束済み",
+      "name": "コネクタ実行なし",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         880,
         120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "need-write",
+              "leftValue": "={{ $json.__nowrite ? 'no' : 'yes' }}",
+              "rightValue": "yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "01000000-0000-4000-8000-00000000000d",
+      "name": "書き込みが必要か",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1210,
+        -100
       ]
     }
   ],
@@ -280,7 +313,7 @@
         ],
         [
           {
-            "node": "収束済み",
+            "node": "コネクタ実行なし",
             "type": "main",
             "index": 0
           }
@@ -302,7 +335,7 @@
       "main": [
         [
           {
-            "node": "state を書き込む",
+            "node": "書き込みが必要か",
             "type": "main",
             "index": 0
           }
@@ -311,6 +344,35 @@
     },
     "state を書き込む": {
       "main": [
+        [
+          {
+            "node": "サマリを返す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "コネクタ実行なし": {
+      "main": [
+        [
+          {
+            "node": "state への patch を作る",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "書き込みが必要か": {
+      "main": [
+        [
+          {
+            "node": "state を書き込む",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "サマリを返す",

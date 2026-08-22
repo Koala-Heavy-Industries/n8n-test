@@ -20,8 +20,8 @@
 |---|---|
 | 1. 検証環境(n8n / Keycloak / Mailpit) | ✅ 完了 |
 | 2. 台帳リポジトリ([khi-ledger](https://github.com/Koala-Heavy-Industries/khi-ledger)) | 🟡 構成とカタログ投入済み。CI 検証は未実装 |
-| 3. 土台サブWF(ledger-read/write、notify、request-approval) | ⬜ 未着手 |
-| 4. リコンサイラ + service-keycloak | ⬜ 未着手 |
+| 3. 土台サブWF | 🟡 `ledger-read` 完成(実台帳で動作確認)。`ledger-write` / `notify` / `request-approval` は未着手 |
+| 4. リコンサイラ + service-keycloak | ⬜ 未着手(Keycloak API 側の疎通は検証済み) |
 | 5〜11(リマインド、PC/サーバ、監査、安全装置ほか) | ⬜ 未着手 |
 
 → [実装ロードマップ](docs/design/05-environment.md#実装フェーズのロードマップ)
@@ -40,10 +40,27 @@ docker compose up -d
 | Keycloak | http://localhost:8080 | プロジェクト IdP(realm: `khi-dev`) |
 | Mailpit | http://localhost:8025 | 送信メールの受信箱(チャネル未決のまま検証する) |
 
-`setup-keycloak.py` が最後に出力する Client ID / Secret を、n8n の Credential
-(OAuth2 Client Credentials)に登録して `service-keycloak` から使う。
+`setup-keycloak.py` が出力する Client Secret と、khi-ledger 用の
+fine-grained PAT(Contents: Read and write のみ)を `.env` に入れてから:
+
+```bash
+./scripts/import-credentials.py   # .env から n8n の Credential を作成(冪等)
+./scripts/deploy-workflows.py     # workflows/*.json をインポート・有効化・再起動
+```
 
 NetBox はロードマップ第6段階(PC・サーバ登録)で追加する。
+
+## ワークフローの開発
+
+ワークフローは UI ではなく `workflows/*.json` として Git 管理し、CLI で
+インポートする(定義が Git に残り、[08 のワークフロー定義監査](docs/design/08-safeguards.md)にも接続できる)。
+
+```bash
+./scripts/deploy-workflows.py                          # 反映
+./scripts/run-workflow.py ledger-read '{"kind":"members"}'   # 入力を与えて実行
+```
+
+JSON には top-level の `id` を必ず付ける(無いと再インポートで重複する)。
 
 ## 設計ドキュメント(読み順)
 

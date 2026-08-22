@@ -56,6 +56,9 @@ flowchart LR
 | **ワークフローは CLI でインポートする** | `workflows/*.json` を Git 管理し、`docker compose exec -T n8n n8n import:workflow --separate --input=/workflows`。UI で作らないことで定義が Git に残り、[08 のワークフロー定義監査](08-safeguards.md#脅威モデルと残余リスク)とも接続できる。ディレクトリ指定(`--separate`)ならワークフロー JSON に top-level `id` は不要だが、単一ファイル指定では必須(無いと NOT NULL 制約で失敗する) |
 | **設定値は `$env` でワークフローに渡す** | `N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"` を設定し、`LEDGER_REPO` 等を compose から注入する。ワークフロー JSON に環境固有の値を埋め込まずに済む。n8n は既に全 credential を保持する信頼境界なので脅威モデルは変わらない |
 | **Credential は秘密をファイルに残さず投入する** | `scripts/import-credentials.py` が `.env` から生成した JSON をコンテナへパイプし、`n8n import:credentials` で取り込む(n8n が `N8N_ENCRYPTION_KEY` で暗号化保存)。中間ファイルはリポジトリに残らない |
+| **HTTP Request ノードは JSON 配列を自動で複数アイテムに分割する** | GitHub の contents API がディレクトリ一覧(配列)を返すと、後続ノードには「配列1件」ではなく「エントリごとのアイテム」が渡る。配列として扱うコードは空振りするので注意。あわせて、**ノード間をインデックスで対応付ける実装は避け**、応答自体が持つ `path` / `sha` から判別する(アイテム数が変わっても壊れない) |
+| **サブワークフローは active でないと呼べない** | Execute Workflow から呼ぶ側・呼ばれる側ともに有効化が必要(`n8n update:workflow --id=<id> --active=true` のあと再起動)。`scripts/deploy-workflows.py` がインポート・有効化・再起動をまとめて行う |
+| **CLI に `delete:workflow` は無い** | n8n 2.x では提供されない。検証で作った一時ワークフローの削除は DB から直接行う(`scripts/run-workflow.py` が実施) |
 | Keycloak のブートストラップ変数 | Keycloak 26 では `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD`(旧 `KEYCLOAK_ADMIN*` は非推奨) |
 
 ### 検証済み: Keycloak コネクタに必要な操作

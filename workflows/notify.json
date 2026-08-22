@@ -1,0 +1,64 @@
+{
+  "id": "notify0000000001",
+  "name": "notify",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c1000000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [-220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 入力: { to: string|string[], subject, body, level?: 'info'|'warn'|'escalation' }\n// 出力: { ok, to, level }\n//\n// チャネル(メール / Slack など)に触れるのはこのワークフローだけ。\n// 呼び出し側はこの入出力インターフェースにだけ依存する。\n// チャネルを変えるときは後続ノードを差し替え、ここは変えない。\n// 設計: docs/design/04-notification-abstraction.md\n\nconst inp = $input.first()?.json ?? {};\n\nconst to = Array.isArray(inp.to) ? inp.to : (inp.to ? [inp.to] : []);\nconst valid = to.filter((a) => typeof a === 'string' && /^[^@\\s]+@[^@\\s]+$/.test(a));\nif (valid.length === 0) {\n  throw new Error(`notify: 有効な宛先がありません: ${JSON.stringify(inp.to)}`);\n}\nif (!inp.subject) throw new Error('notify: subject は必須です');\n\nconst level = ['info', 'warn', 'escalation'].includes(inp.level) ? inp.level : 'info';\nconst PREFIX = { info: '', warn: '【注意】', escalation: '【エスカレーション】' };\n\nreturn [{ json: {\n  from: $env.NOTIFY_FROM || 'itops-bot@example.com',\n  to: valid.join(','),\n  recipients: valid,\n  level,\n  subject: `${PREFIX[level]}${inp.subject}`,\n  body: String(inp.body ?? ''),\n}}];"
+      },
+      "id": "c1000000-0000-4000-8000-000000000002",
+      "name": "宛先と本文を整える",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $json.from }}",
+        "toEmail": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "c1000000-0000-4000-8000-000000000003",
+      "name": "メール送信",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [240, 0],
+      "credentials": {
+        "smtp": { "id": "smtp-mailpit", "name": "SMTP (Mailpit)" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// チャネル固有の応答は呼び出し側に見せない(差し替え可能に保つため)。\nconst ctx = $('宛先と本文を整える').first().json;\nreturn [{ json: { ok: true, to: ctx.recipients, level: ctx.level } }];"
+      },
+      "id": "c1000000-0000-4000-8000-000000000004",
+      "name": "結果を返す",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [[{ "node": "宛先と本文を整える", "type": "main", "index": 0 }]]
+    },
+    "宛先と本文を整える": {
+      "main": [[{ "node": "メール送信", "type": "main", "index": 0 }]]
+    },
+    "メール送信": {
+      "main": [[{ "node": "結果を返す", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}

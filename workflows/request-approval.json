@@ -1,0 +1,128 @@
+{
+  "id": "reqapproval00001",
+  "name": "request-approval",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "d1000000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 入力: { approvers: string|string[], subject, body, timeout_days? }\n// 出力: { approved, responder, responded_at, timed_out }\n//\n// 承認リンク方式(チャネル非依存)。本文に承認/却下リンクを埋め込んで notify で送る。\n// リンクをどのチャネルで送ってもクリックで実行が再開されるため、\n// チャネルが決まっていなくても承認フローが成立する。\n// 設計: docs/design/04-notification-abstraction.md\n\nconst inp = $input.first()?.json ?? {};\n\nconst list = Array.isArray(inp.approvers) ? inp.approvers : (inp.approvers ? [inp.approvers] : []);\nconst approvers = list.filter((a) => typeof a === 'string' && /^[^@\\s]+@[^@\\s]+$/.test(a));\nif (approvers.length === 0) {\n  throw new Error(`request-approval: 有効な承認者がいません: ${JSON.stringify(inp.approvers)}`);\n}\nif (!inp.subject) throw new Error('request-approval: subject は必須です');\n\nconst timeoutDays = Number(inp.timeout_days ?? 3);\n\n// 実行を再開する URL。クエリで承認/却下を区別する。\nconst resume = $execution.resumeUrl;\nif (!resume) throw new Error('request-approval: resumeUrl を取得できません');\n\n// n8n の resumeUrl は署名付きで既にクエリを含む(?signature=...)。\n// そのまま '?' で連結すると URL が壊れるため区切り文字を判定する。\nconst sep = resume.includes('?') ? '&' : '?';\nconst approveUrl = `${resume}${sep}decision=approve`;\nconst rejectUrl = `${resume}${sep}decision=reject`;\n\nconst body = [\n  String(inp.body ?? ''),\n  '',\n  '───────────────',\n  `承認する: ${approveUrl}`,\n  `却下する: ${rejectUrl}`,\n  '',\n  `※ ${timeoutDays} 日以内に応答がない場合は失効します。`,\n].join('\\n');\n\nreturn [{ json: {\n  approvers,\n  to: approvers,          // notify の入力インターフェースに合わせる\n  subject: inp.subject,\n  body,\n  timeoutDays,\n  requestedAt: new Date().toISOString(),\n}}];"
+      },
+      "id": "d1000000-0000-4000-8000-000000000002",
+      "name": "承認依頼を組み立てる",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "notify0000000001",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "d1000000-0000-4000-8000-000000000003",
+      "name": "承認依頼を送る",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "limitWaitTime": true,
+        "resumeAmount": "={{ $('承認依頼を組み立てる').first().json.timeoutDays }}",
+        "resumeUnit": "days",
+        "options": {}
+      },
+      "id": "d1000000-0000-4000-8000-000000000004",
+      "name": "応答を待つ",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        460,
+        0
+      ],
+      "webhookId": "a7f3c1e2-5b48-4d29-9e11-6c2a8f0b3d54"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 再開時のクエリから承認/却下を判定する。\n// 期限切れで再開した場合は decision が無いので timed_out として返す。\nconst ctx = $('承認依頼を組み立てる').first().json;\nconst resumed = $input.first()?.json ?? {};\n\nconst decision = resumed.query?.decision ?? resumed.decision ?? null;\n\nif (decision === null) {\n  return [{ json: {\n    approved: false,\n    responder: null,\n    responded_at: null,\n    timed_out: true,\n    requested_at: ctx.requestedAt,\n  }}];\n}\n\nreturn [{ json: {\n  approved: decision === 'approve',\n  // 誰が押したかはリンク方式では特定できない。宛先が承認者本人である前提。\n  // 本人性が必要になったら署名付きトークンを付与して検証する(04 参照)。\n  responder: ctx.approvers.join(','),\n  responded_at: new Date().toISOString(),\n  timed_out: false,\n  requested_at: ctx.requestedAt,\n}}];"
+      },
+      "id": "d1000000-0000-4000-8000-000000000005",
+      "name": "応答を解釈する",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "承認依頼を組み立てる",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "承認依頼を組み立てる": {
+      "main": [
+        [
+          {
+            "node": "承認依頼を送る",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "承認依頼を送る": {
+      "main": [
+        [
+          {
+            "node": "応答を待つ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "応答を待つ": {
+      "main": [
+        [
+          {
+            "node": "応答を解釈する",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -42,6 +42,7 @@ services:
       GITHUB_ORG: ${GITHUB_ORG:-Koala-Heavy-Industries}
       KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-khi-dev}
+      NOTIFY_FROM: ${NOTIFY_FROM:-itops-bot@example.com}
       APPROVER_EMAILS: ${APPROVER_EMAILS:-}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       LICENSE_ASSIGNEE: ${LICENSE_ASSIGNEE:-}

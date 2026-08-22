@@ -59,6 +59,8 @@ flowchart LR
 | **HTTP Request ノードは JSON 配列を自動で複数アイテムに分割する** | GitHub の contents API がディレクトリ一覧(配列)を返すと、後続ノードには「配列1件」ではなく「エントリごとのアイテム」が渡る。配列として扱うコードは空振りするので注意。あわせて、**ノード間をインデックスで対応付ける実装は避け**、応答自体が持つ `path` / `sha` から判別する(アイテム数が変わっても壊れない) |
 | **サブワークフローは active でないと呼べない** | Execute Workflow から呼ぶ側・呼ばれる側ともに有効化が必要(`n8n update:workflow --id=<id> --active=true` のあと再起動)。`scripts/deploy-workflows.py` がインポート・有効化・再起動をまとめて行う |
 | **CLI に `delete:workflow` は無い** | n8n 2.x では提供されない。検証で作った一時ワークフローの削除は DB から直接行う(`scripts/run-workflow.py` が実施) |
+| **Wait を含むフローは CLI 実行では検証できない** | `n8n execute` は一発限りのプロセスなので、実行が待機に入ると再開できない。稼働中インスタンスで動かす必要があるため、Webhook トリガーの一時ワークフローから呼び出して検証する(承認リンクのクリックまで通しで確認できる) |
+| **resume URL は署名付きで、既にクエリを含む** | `$execution.resumeUrl` は `?signature=<HMAC>` を含む。承認/却下のパラメータは `&` で連結する(→ [04](04-notification-abstraction.md#チャネル非依存の承認完了報告方式)) |
 | Keycloak のブートストラップ変数 | Keycloak 26 では `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD`(旧 `KEYCLOAK_ADMIN*` は非推奨) |
 
 ### 検証済み: Keycloak コネクタに必要な操作

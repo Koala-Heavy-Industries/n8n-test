@@ -1,0 +1,29 @@
+{
+  "name": "probe-yaml",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "11111111-1111-4111-8111-111111111111",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const YAML = require('yaml');\n\nconst sample = `# コメント付き\nname: サンプル 太郎\nrole: developer\nteams: [alpha, beta]\nstatus: active\naccounts:\n  github: sample-dev\n`;\n\nconst parsed = YAML.parse(sample);\nconst roundTrip = YAML.stringify(parsed);\n\nreturn [{ json: {\n  ok: true,\n  parsed,\n  teamsIsArray: Array.isArray(parsed.teams),\n  nested: parsed.accounts.github,\n  roundTrip,\n} }];"
+      },
+      "id": "22222222-2222-4222-8222-222222222222",
+      "name": "YAML parse/stringify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [[{ "node": "YAML parse/stringify", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}

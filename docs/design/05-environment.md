@@ -46,6 +46,25 @@ flowchart LR
   届かないため、ローカル検証ではポーリング(Schedule + GitHub API)で代替するか
   smee.io 等のトンネルを使う。日次リコンサイルがあるため取りこぼしても収束する。
 
+## 構築時に判明した制約(検証済み)
+
+| 事項 | 内容 |
+|---|---|
+| **Code ノードで YAML を扱うには許可が要る** | 台帳が YAML のため必須。`NODE_FUNCTION_ALLOW_EXTERNAL: "yaml"` を n8n に設定すると Code ノードから `require('yaml')` が使える(`yaml` は n8n の依存として同梱。`js-yaml` は入っていない)。設定なしでは Code ノードが YAML を解釈できず、**この設計は成立しない** |
+| **Postgres は 17 以上** | n8n 2.x は Postgres 16 を「互換サポートのみ」として警告する。17-alpine を使う |
+| **CLI 実行はブローカーポートが衝突する** | 起動中のインスタンスがあると `n8n execute` が「Task Broker's port 5679 is already in use」で失敗する。`docker compose exec -e N8N_RUNNERS_BROKER_PORT=5699 -T n8n n8n execute --id <id>` のように別ポートを渡す |
+| **ワークフローは CLI でインポートする** | `workflows/*.json` を Git 管理し、`docker compose exec -T n8n n8n import:workflow --separate --input=/workflows`。UI で作らないことで定義が Git に残り、[08 のワークフロー定義監査](08-safeguards.md#脅威モデルと残余リスク)とも接続できる |
+| Keycloak のブートストラップ変数 | Keycloak 26 では `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD`(旧 `KEYCLOAK_ADMIN*` は非推奨) |
+
+### 検証済み: Keycloak コネクタに必要な操作
+
+最小権限のサービスアカウント(`manage-users` / `query-users` / `query-groups`)で
+`service-keycloak` が必要とする操作がすべて成立することを確認した:
+トークン取得(client_credentials)、ユーザー作成、グループ追加、
+**同じグループ追加の再実行も 204(冪等性が API 側で保証される)**、
+所属グループの読み取り(`verify: api` が成立)、アカウント停止(キルスイッチ)、
+セッション失効(logout)、ユーザー削除。
+
 ## 初期セットアップ手順(実装フェーズで実施)
 
 1. `docker compose up -d` → n8n オーナーアカウント作成、NetBox superuser 作成、

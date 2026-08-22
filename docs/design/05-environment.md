@@ -53,7 +53,9 @@ flowchart LR
 | **Code ノードで YAML を扱うには許可が要る** | 台帳が YAML のため必須。`NODE_FUNCTION_ALLOW_EXTERNAL: "yaml"` を n8n に設定すると Code ノードから `require('yaml')` が使える(`yaml` は n8n の依存として同梱。`js-yaml` は入っていない)。設定なしでは Code ノードが YAML を解釈できず、**この設計は成立しない** |
 | **Postgres は 17 以上** | n8n 2.x は Postgres 16 を「互換サポートのみ」として警告する。17-alpine を使う |
 | **CLI 実行はブローカーポートが衝突する** | 起動中のインスタンスがあると `n8n execute` が「Task Broker's port 5679 is already in use」で失敗する。`docker compose exec -e N8N_RUNNERS_BROKER_PORT=5699 -T n8n n8n execute --id <id>` のように別ポートを渡す |
-| **ワークフローは CLI でインポートする** | `workflows/*.json` を Git 管理し、`docker compose exec -T n8n n8n import:workflow --separate --input=/workflows`。UI で作らないことで定義が Git に残り、[08 のワークフロー定義監査](08-safeguards.md#脅威モデルと残余リスク)とも接続できる |
+| **ワークフローは CLI でインポートする** | `workflows/*.json` を Git 管理し、`docker compose exec -T n8n n8n import:workflow --separate --input=/workflows`。UI で作らないことで定義が Git に残り、[08 のワークフロー定義監査](08-safeguards.md#脅威モデルと残余リスク)とも接続できる。ディレクトリ指定(`--separate`)ならワークフロー JSON に top-level `id` は不要だが、単一ファイル指定では必須(無いと NOT NULL 制約で失敗する) |
+| **設定値は `$env` でワークフローに渡す** | `N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"` を設定し、`LEDGER_REPO` 等を compose から注入する。ワークフロー JSON に環境固有の値を埋め込まずに済む。n8n は既に全 credential を保持する信頼境界なので脅威モデルは変わらない |
+| **Credential は秘密をファイルに残さず投入する** | `scripts/import-credentials.py` が `.env` から生成した JSON をコンテナへパイプし、`n8n import:credentials` で取り込む(n8n が `N8N_ENCRYPTION_KEY` で暗号化保存)。中間ファイルはリポジトリに残らない |
 | Keycloak のブートストラップ変数 | Keycloak 26 では `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD`(旧 `KEYCLOAK_ADMIN*` は非推奨) |
 
 ### 検証済み: Keycloak コネクタに必要な操作
@@ -64,6 +66,10 @@ flowchart LR
 **同じグループ追加の再実行も 204(冪等性が API 側で保証される)**、
 所属グループの読み取り(`verify: api` が成立)、アカウント停止(キルスイッチ)、
 セッション失効(logout)、ユーザー削除。
+
+n8n 側からも、`oAuth2Api`(grant type: client credentials、authentication: body)の
+credential を使った HTTP Request ノードで Keycloak Admin API を呼び出せることを
+確認済み(グループ一覧の取得に成功)。
 
 ## 初期セットアップ手順(実装フェーズで実施)
 

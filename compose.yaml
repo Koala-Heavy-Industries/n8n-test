@@ -33,6 +33,21 @@ services:
       # Code ノードから YAML を読み書きするために許可する(台帳が YAML のため)。
       # yaml パッケージは n8n の依存として同梱されている。
       NODE_FUNCTION_ALLOW_EXTERNAL: "yaml"
+      # ワークフローから $env で設定値を参照する(下の設定値を注入するため)。
+      # n8n は既にすべての credential を保持する信頼境界なので、
+      # ここで env を開けても脅威モデルは変わらない(docs/design/08-safeguards.md)。
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      # --- ワークフローが $env で読む設定値 ---
+      LEDGER_REPO: ${LEDGER_REPO:-Koala-Heavy-Industries/khi-ledger}
+      GITHUB_ORG: ${GITHUB_ORG:-Koala-Heavy-Industries}
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-khi-dev}
+      APPROVER_EMAILS: ${APPROVER_EMAILS:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      LICENSE_ASSIGNEE: ${LICENSE_ASSIGNEE:-}
+      REMIND_INTERVAL_DAYS: ${REMIND_INTERVAL_DAYS:-3}
+      REMIND_MAX: ${REMIND_MAX:-3}
+      REVOKE_CIRCUIT_BREAKER: ${REVOKE_CIRCUIT_BREAKER:-5}
     volumes:
       - n8n_data:/home/node/.n8n
       # ワークフロー定義は Git 管理し、CLI でインポートする

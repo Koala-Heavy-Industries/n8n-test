@@ -1,0 +1,94 @@
+{
+  "name": "ledger-read",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a0000000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 入力: { kind: 'members'|'pcs'|'servers'|'catalog', id?: string }\n//   members/pcs/servers … desired(または対象ディレクトリ)と state を両方読み、id で突き合わせて返す\n//   catalog            … catalog/ 配下をそのまま返す\n// 出力: 1件 = 1エンティティ { id, desired, state, _meta }\n//\n// 設計: docs/design/03-service-catalog.md(台帳リポジトリ)\n\nconst input = $input.first()?.json ?? {};\nconst kind = input.kind;\nconst id = input.id ?? null;\n\nconst LAYOUT = {\n  members: { desired: 'members', state: 'state/members' },\n  pcs:     { desired: null,      state: 'state/pcs' },\n  servers: { desired: null,      state: 'state/servers' },\n  catalog: { desired: 'catalog', state: null },\n};\n\nif (!LAYOUT[kind]) {\n  throw new Error(`ledger-read: 不正な kind: ${JSON.stringify(kind)}(有効値: ${Object.keys(LAYOUT).join(', ')})`);\n}\n\nconst repo = $env.LEDGER_REPO;\nif (!repo) throw new Error('ledger-read: LEDGER_REPO が未設定です');\n\nconst out = [];\nfor (const [role, dir] of Object.entries(LAYOUT[kind])) {\n  if (!dir) continue;\n  out.push({ json: { kind, id, role, dir, repo, url: `https://api.github.com/repos/${repo}/contents/${dir}` } });\n}\nreturn out;"
+      },
+      "id": "a0000000-0000-4000-8000-000000000002",
+      "name": "読み取り対象を決める",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [20, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "a0000000-0000-4000-8000-000000000003",
+      "name": "ディレクトリ一覧",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ディレクトリ一覧から .yaml だけを取り出し、1ファイル1アイテムにする。\n// state ディレクトリが存在しない場合(404)は空として扱う。\nconst items = [];\n\nfor (let i = 0; i < $input.all().length; i++) {\n  const item = $input.all()[i];\n  const ctx = $('読み取り対象を決める').all()[i]?.json ?? {};\n  const body = item.json;\n\n  // HTTP ノードの continueRegularOutput でエラー時は { error: ... } が入る\n  const listing = Array.isArray(body) ? body : (Array.isArray(body?.data) ? body.data : null);\n  if (!listing) continue;\n\n  for (const entry of listing) {\n    if (entry.type !== 'file' || !entry.name.endsWith('.yaml')) continue;\n    const entityId = entry.name.replace(/\\.yaml$/, '');\n    if (ctx.id && entityId !== ctx.id) continue;\n    items.push({ json: {\n      kind: ctx.kind,\n      role: ctx.role,\n      entityId,\n      path: entry.path,\n      sha: entry.sha,\n      url: `https://api.github.com/repos/${ctx.repo}/contents/${entry.path}`,\n    }});\n  }\n}\n\nreturn items;"
+      },
+      "id": "a0000000-0000-4000-8000-000000000004",
+      "name": "YAMLファイルを列挙",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "a0000000-0000-4000-8000-000000000005",
+      "name": "ファイル取得",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// base64 を復号して YAML をパースし、desired と state を entityId で突き合わせる。\n// _meta.sha は ledger-write の楽観的排他(競合検出)に使う。\nconst YAML = require('yaml');\n\nconst merged = new Map();\n\nconst all = $input.all();\nfor (let i = 0; i < all.length; i++) {\n  const res = all[i].json;\n  const ctx = $('YAMLファイルを列挙').all()[i]?.json ?? {};\n\n  const b64 = res.content ?? res.data?.content;\n  if (!b64) throw new Error(`ledger-read: ${ctx.path} の内容を取得できませんでした`);\n\n  const text = Buffer.from(b64, 'base64').toString('utf8');\n  let parsed;\n  try {\n    parsed = YAML.parse(text);\n  } catch (e) {\n    throw new Error(`ledger-read: ${ctx.path} の YAML 解析に失敗: ${e.message}`);\n  }\n\n  const key = ctx.entityId;\n  if (!merged.has(key)) {\n    merged.set(key, { id: key, kind: ctx.kind, desired: null, state: null, _meta: {} });\n  }\n  const rec = merged.get(key);\n  rec[ctx.role] = parsed;\n  rec._meta[ctx.role] = { path: ctx.path, sha: res.sha ?? ctx.sha };\n}\n\nreturn [...merged.values()].map((json) => ({ json }));"
+      },
+      "id": "a0000000-0000-4000-8000-000000000006",
+      "name": "復号・パース・突き合わせ",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 0]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [[{ "node": "読み取り対象を決める", "type": "main", "index": 0 }]]
+    },
+    "読み取り対象を決める": {
+      "main": [[{ "node": "ディレクトリ一覧", "type": "main", "index": 0 }]]
+    },
+    "ディレクトリ一覧": {
+      "main": [[{ "node": "YAMLファイルを列挙", "type": "main", "index": 0 }]]
+    },
+    "YAMLファイルを列挙": {
+      "main": [[{ "node": "ファイル取得", "type": "main", "index": 0 }]]
+    },
+    "ファイル取得": {
+      "main": [[{ "node": "復号・パース・突き合わせ", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}

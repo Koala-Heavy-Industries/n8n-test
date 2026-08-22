@@ -278,9 +278,13 @@ status は `active` / `left` の2値だけ。旧設計の `provisioning` / `offb
 ### state/members/<id>.yaml(actual、bot 管理)
 
 ```yaml
+# grant は集合(配列)。1つのサービスに複数の grant が付くため
+# (例: 役割由来の group:pm とチーム由来の group:team-alpha)。
 grants:
-  idp:    { grant: "group:dev", since: 2026-08-20, verified_at: 2026-08-22 }
-  github: { grant: "team:dev-members", since: 2026-08-20 }
+  idp:    ["group:pm", "group:team-alpha"]
+  github: ["team:alpha-devs"]
+failures:                      # 解消したら削除される(patch に null を渡す)
+  github: "コネクタが失敗しました: 403"
 tasks:
   - id: t-0042
     kind: member-add           # member-add / role-change / member-remove / procurement / audit など
@@ -346,7 +350,9 @@ remind-scheduler が**同時に**コミットしうる。n8n に分散ロック�
 - **書き込み単位を小さく**: 1回のコミットは1ファイル(1メンバー / 1機器)に
   限定し、衝突の確率と再適用の複雑さを下げる。
 - **マージの規則**: プレーンオブジェクトは再帰的にマージし、配列は丸ごと置換する
-  (予測しやすさを優先)。全置換したい場合は `replace: true` を渡す。
+  (予測しやすさを優先)。**patch の値が `null` のキーは削除する**
+  (RFC 7386 JSON Merge Patch と同じ規約。解消した失敗記録を消すために必要)。
+  全置換したい場合は `replace: true` を渡す。
 - 呼び出し側はこの制御を意識しない(`ledger-write` の内部に隠蔽する)。
 
 > **設計の訂正(実装で判明)**: 当初は「`ledger-write` を同時実行数 1 にして

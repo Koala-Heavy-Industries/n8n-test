@@ -13,15 +13,16 @@
 
 ## ステータス
 
-**実装フェーズ(骨格の構築中)。**
-設計は 00〜08 で一通り固まり、検証環境の構築まで完了している。
+**骨格が動作。**
+設計(00〜08)に加え、**台帳の PR をマージすると Keycloak に反映される**
+一連のループが実機で動く状態。
 
 | ロードマップ | 状態 |
 |---|---|
 | 1. 検証環境(n8n / Keycloak / Mailpit) | ✅ 完了 |
 | 2. 台帳リポジトリ([khi-ledger](https://github.com/Koala-Heavy-Industries/khi-ledger)) | 🟡 構成とカタログ投入済み。CI 検証は未実装 |
 | 3. 土台サブWF | ✅ 完了 — `ledger-read` / `ledger-write` / `notify` / `request-approval` すべて実機で動作確認 |
-| 4. リコンサイラ + service-keycloak | ⬜ 未着手(Keycloak API 側の疎通は検証済み) |
+| 4. リコンサイラ + service-keycloak | ✅ 完了 — 台帳の変更が Keycloak に反映されるところまで実機で確認 |
 | 5〜11(リマインド、PC/サーバ、監査、安全装置ほか) | ⬜ 未着手 |
 
 → [実装ロードマップ](docs/design/05-environment.md#実装フェーズのロードマップ)
@@ -56,8 +57,9 @@ NetBox はロードマップ第6段階(PC・サーバ登録)で追加する。
 インポートする(定義が Git に残り、[08 のワークフロー定義監査](docs/design/08-safeguards.md)にも接続できる)。
 
 ```bash
-./scripts/deploy-workflows.py                          # 反映
-./scripts/run-workflow.py ledger-read '{"kind":"members"}'   # 入力を与えて実行
+./scripts/deploy-workflows.py                              # 反映
+./scripts/run-workflow.py ledger-read '{"kind":"members"}' # 入力を与えて実行
+./scripts/run-workflow.py reconcile '{}'                   # 台帳と実サービスを収束させる
 ```
 
 JSON には top-level の `id` を必ず付ける(無いと再インポートで重複する)。

@@ -8,7 +8,10 @@
       "name": "When Executed by Another Workflow",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1,
-      "position": [-220, 0]
+      "position": [
+        -220,
+        0
+      ]
     },
     {
       "parameters": {
@@ -18,7 +21,10 @@
       "name": "書き込み対象を決める",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {
@@ -31,21 +37,30 @@
       "name": "現在の内容を取得",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [220, 0],
+      "position": [
+        220,
+        0
+      ],
       "onError": "continueRegularOutput",
       "credentials": {
-        "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" }
+        "httpHeaderAuth": {
+          "id": "github-ledger",
+          "name": "GitHub (khi-ledger)"
+        }
       }
     },
     {
       "parameters": {
-        "jsCode": "// 既存内容に patch をマージして本文を作る。\n// 404(新規作成)の場合は空から作る。sha を付けることで、\n// 読み取り後に他の実行が書き込んでいたら GitHub 側が 409 を返す(楽観的排他)。\n\nconst YAML = require('yaml');\nconst ctx = $('書き込み対象を決める').first().json;\nconst res = $input.first()?.json ?? {};\n\nlet base = {};\nlet sha = null;\nif (res && res.encoding === 'base64' && typeof res.content === 'string') {\n  base = YAML.parse(Buffer.from(res.content, 'base64').toString('utf8')) ?? {};\n  sha = res.sha;\n}\n\n// プレーンオブジェクトのみ再帰マージ。配列は丸ごと置換(予測しやすさを優先)。\nconst isPlain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);\nconst merge = (a, b) => {\n  const out = { ...a };\n  for (const [k, v] of Object.entries(b)) {\n    out[k] = isPlain(v) && isPlain(a?.[k]) ? merge(a[k], v) : v;\n  }\n  return out;\n};\n\nconst next = ctx.replace ? ctx.patch : merge(base, ctx.patch);\nconst text = YAML.stringify(next);\n\nconst head = `state(${ctx.kind}): ${ctx.id}`;\nconst message = ctx.reason ? `${head} — ${ctx.reason}` : head;\n\nreturn [{ json: {\n  url: ctx.url,\n  body: {\n    message,\n    content: Buffer.from(text, 'utf8').toString('base64'),\n    ...(sha ? { sha } : {}),\n  },\n  existed: Boolean(sha),\n}}];"
+        "jsCode": "// 既存内容に patch をマージして本文を作る。\n// 404(新規作成)の場合は空から作る。sha を付けることで、\n// 読み取り後に他の実行が書き込んでいたら GitHub 側が 409 を返す(楽観的排他)。\n\nconst YAML = require('yaml');\nconst ctx = $('書き込み対象を決める').first().json;\nconst res = $input.first()?.json ?? {};\n\nlet base = {};\nlet sha = null;\nif (res && res.encoding === 'base64' && typeof res.content === 'string') {\n  base = YAML.parse(Buffer.from(res.content, 'base64').toString('utf8')) ?? {};\n  sha = res.sha;\n}\n\n// プレーンオブジェクトのみ再帰マージ。配列は丸ごと置換(予測しやすさを優先)。\n// patch の値が null のキーは削除する(RFC 7386 JSON Merge Patch と同じ規約)。\n// 解消済みの失敗記録などを消せるようにするため。\nconst isPlain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);\nconst merge = (a, b) => {\n  const out = { ...a };\n  for (const [k, v] of Object.entries(b)) {\n    if (v === null) { delete out[k]; continue; }\n    out[k] = isPlain(v) && isPlain(a?.[k]) ? merge(a[k], v) : v;\n  }\n  return out;\n};\n\nconst next = ctx.replace ? ctx.patch : merge(base, ctx.patch);\nconst text = YAML.stringify(next);\n\nconst head = `state(${ctx.kind}): ${ctx.id}`;\nconst message = ctx.reason ? `${head} — ${ctx.reason}` : head;\n\nreturn [{ json: {\n  url: ctx.url,\n  body: {\n    message,\n    content: Buffer.from(text, 'utf8').toString('base64'),\n    ...(sha ? { sha } : {}),\n  },\n  existed: Boolean(sha),\n}}];"
       },
       "id": "b1000000-0000-4000-8000-000000000004",
       "name": "マージして本文を作る",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 0]
+      "position": [
+        440,
+        0
+      ]
     },
     {
       "parameters": {
@@ -62,10 +77,16 @@
       "name": "コミット",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [660, 0],
+      "position": [
+        660,
+        0
+      ],
       "onError": "continueRegularOutput",
       "credentials": {
-        "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" }
+        "httpHeaderAuth": {
+          "id": "github-ledger",
+          "name": "GitHub (khi-ledger)"
+        }
       }
     },
     {
@@ -82,7 +103,10 @@
               "id": "cond-committed",
               "leftValue": "={{ $json.commit ? 'ok' : 'ng' }}",
               "rightValue": "ok",
-              "operator": { "type": "string", "operation": "equals" }
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
             }
           ],
           "combinator": "and"
@@ -93,7 +117,10 @@
       "name": "コミットできたか",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [880, 0]
+      "position": [
+        880,
+        0
+      ]
     },
     {
       "parameters": {
@@ -103,7 +130,10 @@
       "name": "結果を返す",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1100, -100]
+      "position": [
+        1100,
+        -100
+      ]
     },
     {
       "parameters": {
@@ -113,45 +143,118 @@
       "name": "競合なら再試行を組み立てる",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1100, 100]
+      "position": [
+        1100,
+        100
+      ]
     },
     {
       "parameters": {
-        "workflowId": { "__rl": true, "value": "ledgerwrite00001", "mode": "id" },
+        "workflowId": {
+          "__rl": true,
+          "value": "ledgerwrite00001",
+          "mode": "id"
+        },
         "options": {}
       },
       "id": "b1000000-0000-4000-8000-000000000009",
       "name": "自分を呼び直す",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
-      "position": [1320, 100]
+      "position": [
+        1320,
+        100
+      ]
     }
   ],
   "connections": {
     "When Executed by Another Workflow": {
-      "main": [[{ "node": "書き込み対象を決める", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "書き込み対象を決める",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "書き込み対象を決める": {
-      "main": [[{ "node": "現在の内容を取得", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "現在の内容を取得",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "現在の内容を取得": {
-      "main": [[{ "node": "マージして本文を作る", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "マージして本文を作る",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "マージして本文を作る": {
-      "main": [[{ "node": "コミット", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "コミット",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "コミット": {
-      "main": [[{ "node": "コミットできたか", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "コミットできたか",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "コミットできたか": {
       "main": [
-        [{ "node": "結果を返す", "type": "main", "index": 0 }],
-        [{ "node": "競合なら再試行を組み立てる", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "結果を返す",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "競合なら再試行を組み立てる",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "競合なら再試行を組み立てる": {
-      "main": [[{ "node": "自分を呼び直す", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "自分を呼び直す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "settings": { "executionOrder": "v1", "executionTimeout": 300 }
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 300
+  }
 }

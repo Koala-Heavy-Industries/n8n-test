@@ -1,0 +1,274 @@
+{
+  "id": "svckeycloak00001",
+  "name": "service-keycloak",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "f1000000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Keycloak コネクタ。\n// 入力: {\n//   operation: 'add' | 'change' | 'remove',\n//   member: { id, email, name },\n//   desired: ['group:team-alpha', ...],   // あるべき grant 集合(remove では空)\n//   current: ['group:pm', ...]            // state に記録済みの grant 集合\n// }\n// 出力: { ok, applied: { added, removed }, enabled, detail }\n//\n// 冪等に作る(既に目標状態なら成功扱い)。リコンサイラが何度呼んでも同じ結果になる。\n// 設計: docs/design/03-service-catalog.md#ハンドラの入出力インターフェース\n\nconst inp = $input.first()?.json ?? {};\nconst OPS = ['add', 'change', 'remove'];\nif (!OPS.includes(inp.operation)) {\n  throw new Error(`service-keycloak: 不正な operation: ${JSON.stringify(inp.operation)}`);\n}\nconst member = inp.member ?? {};\nif (!member.id || !member.email) {\n  throw new Error('service-keycloak: member.id と member.email は必須です');\n}\n\n// grant は 'group:<名前>' 形式。それ以外は無視する(このサービスが解釈できる形だけ扱う)。\nconst toGroups = (list) => [...new Set((Array.isArray(list) ? list : [])\n  .filter((g) => typeof g === 'string' && g.startsWith('group:'))\n  .map((g) => g.slice('group:'.length)))];\n\nconst desiredGroups = inp.operation === 'remove' ? [] : toGroups(inp.desired);\nconst currentGroups = toGroups(inp.current);\n\nconst base = `${$env.KEYCLOAK_URL}/admin/realms/${$env.KEYCLOAK_REALM}`;\nconst nameParts = String(member.name ?? '').trim().split(/\\s+/);\n\nreturn [{ json: {\n  base,\n  operation: inp.operation,\n  memberId: member.id,\n  email: member.email,\n  firstName: nameParts[0] ?? member.id,\n  lastName: nameParts.slice(1).join(' ') || '-',\n  desiredGroups,\n  currentGroups,\n  shouldBeEnabled: inp.operation !== 'remove',\n}}];"
+      },
+      "id": "f1000000-0000-4000-8000-000000000002",
+      "name": "入力を検証する",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.base }}/users",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ username: $json.memberId, email: $json.email, firstName: $json.firstName, lastName: $json.lastName, enabled: true, emailVerified: false }) }}",
+        "options": {}
+      },
+      "id": "f1000000-0000-4000-8000-000000000003",
+      "name": "ユーザーを作成(既存なら409)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -20,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "keycloak-sa",
+          "name": "Keycloak (n8n service account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('入力を検証する').first().json.base }}/groups",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "id": "f1000000-0000-4000-8000-000000000004",
+      "name": "グループ一覧",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        200,
+        0
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "keycloak-sa",
+          "name": "Keycloak (n8n service account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// グループ名 → ID の対応表を作る(HTTP ノードが配列をアイテムに分割済み)。\nconst map = {};\nfor (const item of $input.all()) {\n  const g = item.json;\n  if (g && g.name && g.id) map[g.name] = g.id;\n}\nreturn [{ json: { groupMap: map } }];"
+      },
+      "id": "f1000000-0000-4000-8000-000000000005",
+      "name": "グループ表を作る",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('入力を検証する').first().json.base }}/users",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "={{ $('入力を検証する').first().json.memberId }}"
+            },
+            {
+              "name": "exact",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1000000-0000-4000-8000-000000000006",
+      "name": "ユーザーを取得",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        0
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "keycloak-sa",
+          "name": "Keycloak (n8n service account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 実施すべき変更を「1操作1アイテム」に展開する。\n// 後続の HTTP ノードがアイテムごとに実行するため、ループ辺が要らない。\n// enabled の設定は常に含めるので、アイテムが 0 件になることはない。\n\nconst ctx = $('入力を検証する').first().json;\nconst groupMap = $('グループ表を作る').first().json.groupMap;\nconst user = $input.first()?.json;\n\nif (!user || !user.id) {\n  throw new Error(`service-keycloak: ユーザー ${ctx.memberId} の作成・取得ができませんでした`);\n}\n\nconst unknown = ctx.desiredGroups.filter((g) => !groupMap[g]);\nif (unknown.length > 0) {\n  throw new Error(`service-keycloak: Keycloak に存在しないグループが指定されました: ${unknown.join(', ')}`);\n}\n\nconst toAdd = ctx.desiredGroups.filter((g) => !ctx.currentGroups.includes(g));\nconst toRemove = ctx.currentGroups.filter((g) => !ctx.desiredGroups.includes(g) && groupMap[g]);\n\nconst ops = [];\n\n// 1. 有効/無効(キルスイッチ)。常に実行して目標状態に寄せる。\nops.push({\n  kind: 'enabled',\n  method: 'PUT',\n  url: `${ctx.base}/users/${user.id}`,\n  body: { enabled: ctx.shouldBeEnabled },\n});\n\n// 2. グループの付与・剥奪\nfor (const g of toAdd) {\n  ops.push({ kind: 'group-add', group: g, method: 'PUT', url: `${ctx.base}/users/${user.id}/groups/${groupMap[g]}`, body: {} });\n}\nfor (const g of toRemove) {\n  ops.push({ kind: 'group-remove', group: g, method: 'DELETE', url: `${ctx.base}/users/${user.id}/groups/${groupMap[g]}`, body: {} });\n}\n\n// 3. 削除時はセッションも失効させる(停止だけでは既存セッションが残るため)\nif (ctx.operation === 'remove') {\n  ops.push({ kind: 'logout', method: 'POST', url: `${ctx.base}/users/${user.id}/logout`, body: {} });\n}\n\nreturn ops.map((json) => ({ json: { ...json, userId: user.id } }));"
+      },
+      "id": "f1000000-0000-4000-8000-000000000007",
+      "name": "操作を組み立てる",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "id": "f1000000-0000-4000-8000-000000000008",
+      "name": "Keycloak を更新",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "keycloak-sa",
+          "name": "Keycloak (n8n service account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 各操作の成否をまとめて返す。1つでも失敗したら ok: false。\nconst ctx = $('入力を検証する').first().json;\nconst ops = $('操作を組み立てる').all().map((i) => i.json);\nconst results = $input.all().map((i) => i.json);\n\nconst failures = [];\nresults.forEach((res, i) => {\n  const err = res?.error;\n  if (err) failures.push(`${ops[i]?.kind ?? '?'}: ${err.message ?? JSON.stringify(err).slice(0, 120)}`);\n});\n\nconst added = ops.filter((o) => o.kind === 'group-add').map((o) => o.group);\nconst removed = ops.filter((o) => o.kind === 'group-remove').map((o) => o.group);\n\nif (failures.length > 0) {\n  return [{ json: {\n    ok: false,\n    detail: `service-keycloak: ${ctx.memberId} の更新で失敗: ${failures.join(' / ')}`,\n    applied: { added: [], removed: [] },\n  }}];\n}\n\nreturn [{ json: {\n  ok: true,\n  applied: { added, removed },\n  enabled: ctx.shouldBeEnabled,\n  grants: ctx.desiredGroups.map((g) => `group:${g}`),\n  detail: `${ctx.memberId}: 付与 ${added.length} 件 / 剥奪 ${removed.length} 件 / enabled=${ctx.shouldBeEnabled}`,\n}}];"
+      },
+      "id": "f1000000-0000-4000-8000-000000000009",
+      "name": "結果を返す",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "入力を検証する",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "入力を検証する": {
+      "main": [
+        [
+          {
+            "node": "ユーザーを作成(既存なら409)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ユーザーを作成(既存なら409)": {
+      "main": [
+        [
+          {
+            "node": "グループ一覧",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "グループ一覧": {
+      "main": [
+        [
+          {
+            "node": "グループ表を作る",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "グループ表を作る": {
+      "main": [
+        [
+          {
+            "node": "ユーザーを取得",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ユーザーを取得": {
+      "main": [
+        [
+          {
+            "node": "操作を組み立てる",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "操作を組み立てる": {
+      "main": [
+        [
+          {
+            "node": "Keycloak を更新",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keycloak を更新": {
+      "main": [
+        [
+          {
+            "node": "結果を返す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

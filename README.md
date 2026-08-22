@@ -13,9 +13,37 @@
 
 ## ステータス
 
-**設計フェーズ。** このリポジトリには現在、設計ドキュメントのみが含まれる。
-ワークフロー実装と docker compose 環境は次ステップ
-([実装ロードマップ](docs/design/05-environment.md#実装フェーズのロードマップ))。
+**実装フェーズ(骨格の構築中)。**
+設計は 00〜08 で一通り固まり、検証環境の構築まで完了している。
+
+| ロードマップ | 状態 |
+|---|---|
+| 1. 検証環境(n8n / Keycloak / Mailpit) | ✅ 完了 |
+| 2. 台帳リポジトリ([khi-ledger](https://github.com/Koala-Heavy-Industries/khi-ledger)) | 🟡 構成とカタログ投入済み。CI 検証は未実装 |
+| 3. 土台サブWF(ledger-read/write、notify、request-approval) | ⬜ 未着手 |
+| 4. リコンサイラ + service-keycloak | ⬜ 未着手 |
+| 5〜11(リマインド、PC/サーバ、監査、安全装置ほか) | ⬜ 未着手 |
+
+→ [実装ロードマップ](docs/design/05-environment.md#実装フェーズのロードマップ)
+
+## 検証環境の起動
+
+```bash
+cp .env.example .env       # 秘密値を埋める(openssl rand -hex 32 など)
+docker compose up -d
+./scripts/setup-keycloak.py    # realm・グループ・n8n用サービスアカウント(冪等)
+```
+
+| サービス | URL | 用途 |
+|---|---|---|
+| n8n | http://localhost:5678 | ワークフロー |
+| Keycloak | http://localhost:8080 | プロジェクト IdP(realm: `khi-dev`) |
+| Mailpit | http://localhost:8025 | 送信メールの受信箱(チャネル未決のまま検証する) |
+
+`setup-keycloak.py` が最後に出力する Client ID / Secret を、n8n の Credential
+(OAuth2 Client Credentials)に登録して `service-keycloak` から使う。
+
+NetBox はロードマップ第6段階(PC・サーバ登録)で追加する。
 
 ## 設計ドキュメント(読み順)
 

@@ -1,0 +1,157 @@
+{
+  "id": "ledgerwrite00001",
+  "name": "ledger-write",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b1000000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [-220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 入力: { kind: 'members'|'pcs'|'servers', id, patch, reason?, replace?, attempt? }\n// 出力: { ok, path, commitSha, action }\n//\n// bot が書けるのは state/ のみ(desired は人が PR で編集する)。\n// 競合時は attempt を増やして自分自身を呼び直す(楽観的排他+リトライ)。\n// 設計: docs/design/03-service-catalog.md#並行書き込みの制御\n\nconst inp = $input.first()?.json ?? {};\n\nconst DIRS = { members: 'state/members', pcs: 'state/pcs', servers: 'state/servers' };\nconst dir = DIRS[inp.kind];\nif (!dir) {\n  throw new Error(`ledger-write: 不正な kind: ${JSON.stringify(inp.kind)}(有効値: ${Object.keys(DIRS).join(', ')})`);\n}\nif (!inp.id || typeof inp.id !== 'string') throw new Error('ledger-write: id は必須です');\nif (!inp.patch || typeof inp.patch !== 'object') throw new Error('ledger-write: patch(オブジェクト)は必須です');\nif (!/^[a-z0-9][a-z0-9._-]*$/i.test(inp.id)) throw new Error(`ledger-write: id に使えない文字が含まれます: ${inp.id}`);\n\nconst repo = $env.LEDGER_REPO;\nif (!repo) throw new Error('ledger-write: LEDGER_REPO が未設定です');\n\nconst path = `${dir}/${inp.id}.yaml`;\nreturn [{ json: {\n  repo,\n  path,\n  url: `https://api.github.com/repos/${repo}/contents/${path}`,\n  kind: inp.kind,\n  id: inp.id,\n  patch: inp.patch,\n  replace: inp.replace === true,\n  reason: inp.reason ?? '',\n  attempt: Number(inp.attempt ?? 1),\n  maxAttempts: 3,\n}}];"
+      },
+      "id": "b1000000-0000-4000-8000-000000000002",
+      "name": "書き込み対象を決める",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000003",
+      "name": "現在の内容を取得",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 既存内容に patch をマージして本文を作る。\n// 404(新規作成)の場合は空から作る。sha を付けることで、\n// 読み取り後に他の実行が書き込んでいたら GitHub 側が 409 を返す(楽観的排他)。\n\nconst YAML = require('yaml');\nconst ctx = $('書き込み対象を決める').first().json;\nconst res = $input.first()?.json ?? {};\n\nlet base = {};\nlet sha = null;\nif (res && res.encoding === 'base64' && typeof res.content === 'string') {\n  base = YAML.parse(Buffer.from(res.content, 'base64').toString('utf8')) ?? {};\n  sha = res.sha;\n}\n\n// プレーンオブジェクトのみ再帰マージ。配列は丸ごと置換(予測しやすさを優先)。\nconst isPlain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);\nconst merge = (a, b) => {\n  const out = { ...a };\n  for (const [k, v] of Object.entries(b)) {\n    out[k] = isPlain(v) && isPlain(a?.[k]) ? merge(a[k], v) : v;\n  }\n  return out;\n};\n\nconst next = ctx.replace ? ctx.patch : merge(base, ctx.patch);\nconst text = YAML.stringify(next);\n\nconst head = `state(${ctx.kind}): ${ctx.id}`;\nconst message = ctx.reason ? `${head} — ${ctx.reason}` : head;\n\nreturn [{ json: {\n  url: ctx.url,\n  body: {\n    message,\n    content: Buffer.from(text, 'utf8').toString('base64'),\n    ...(sha ? { sha } : {}),\n  },\n  existed: Boolean(sha),\n}}];"
+      },
+      "id": "b1000000-0000-4000-8000-000000000004",
+      "name": "マージして本文を作る",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000005",
+      "name": "コミット",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-committed",
+              "leftValue": "={{ $json.commit ? 'ok' : 'ng' }}",
+              "rightValue": "ok",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000006",
+      "name": "コミットできたか",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 成功。呼び出し側にはコミット SHA を返す(監査・追跡用)。\nconst ctx = $('書き込み対象を決める').first().json;\nconst merged = $('マージして本文を作る').first().json;\nconst res = $input.first().json;\n\nreturn [{ json: {\n  ok: true,\n  path: ctx.path,\n  action: merged.existed ? 'updated' : 'created',\n  commitSha: res.commit?.sha ?? null,\n  attempts: ctx.attempt,\n}}];"
+      },
+      "id": "b1000000-0000-4000-8000-000000000007",
+      "name": "結果を返す",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, -100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 失敗。競合(409/422)なら読み直して再試行するため、自分自身を呼ぶ入力を作る。\n// それ以外(権限不足など)は即座に失敗させる — 再試行しても直らないため。\nconst ctx = $('書き込み対象を決める').first().json;\nconst res = $input.first().json;\n\nconst status = res.error?.status ?? res.status ?? res.error?.httpCode ?? null;\nconst message = res.error?.message ?? res.message ?? JSON.stringify(res).slice(0, 200);\nconst conflict = [409, 422].includes(Number(status)) || /sha|conflict/i.test(String(message));\n\nif (!conflict) {\n  throw new Error(`ledger-write: ${ctx.path} の書き込みに失敗 (status=${status}): ${message}`);\n}\nif (ctx.attempt >= ctx.maxAttempts) {\n  throw new Error(`ledger-write: ${ctx.path} が ${ctx.maxAttempts} 回とも競合しました。日次リコンサイルで再試行されます`);\n}\n\nreturn [{ json: {\n  kind: ctx.kind,\n  id: ctx.id,\n  patch: ctx.patch,\n  replace: ctx.replace,\n  reason: ctx.reason,\n  attempt: ctx.attempt + 1,\n}}];"
+      },
+      "id": "b1000000-0000-4000-8000-000000000008",
+      "name": "競合なら再試行を組み立てる",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 100]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "ledgerwrite00001", "mode": "id" },
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000009",
+      "name": "自分を呼び直す",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [1320, 100]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [[{ "node": "書き込み対象を決める", "type": "main", "index": 0 }]]
+    },
+    "書き込み対象を決める": {
+      "main": [[{ "node": "現在の内容を取得", "type": "main", "index": 0 }]]
+    },
+    "現在の内容を取得": {
+      "main": [[{ "node": "マージして本文を作る", "type": "main", "index": 0 }]]
+    },
+    "マージして本文を作る": {
+      "main": [[{ "node": "コミット", "type": "main", "index": 0 }]]
+    },
+    "コミット": {
+      "main": [[{ "node": "コミットできたか", "type": "main", "index": 0 }]]
+    },
+    "コミットできたか": {
+      "main": [
+        [{ "node": "結果を返す", "type": "main", "index": 0 }],
+        [{ "node": "競合なら再試行を組み立てる", "type": "main", "index": 0 }]
+      ]
+    },
+    "競合なら再試行を組み立てる": {
+      "main": [[{ "node": "自分を呼び直す", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1", "executionTimeout": 300 }
+}

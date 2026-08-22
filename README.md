@@ -20,7 +20,7 @@
 |---|---|
 | 1. 検証環境(n8n / Keycloak / Mailpit) | ✅ 完了 |
 | 2. 台帳リポジトリ([khi-ledger](https://github.com/Koala-Heavy-Industries/khi-ledger)) | 🟡 構成とカタログ投入済み。CI 検証は未実装 |
-| 3. 土台サブWF | 🟡 `ledger-read` 完成(実台帳で動作確認)。`ledger-write` / `notify` / `request-approval` は未着手 |
+| 3. 土台サブWF | 🟡 `ledger-read` / `ledger-write` 完成(実台帳で動作確認)。`notify` / `request-approval` は未着手 |
 | 4. リコンサイラ + service-keycloak | ⬜ 未着手(Keycloak API 側の疎通は検証済み) |
 | 5〜11(リマインド、PC/サーバ、監査、安全装置ほか) | ⬜ 未着手 |
 

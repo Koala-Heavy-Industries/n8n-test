@@ -1,0 +1,773 @@
+<title>KHI 運用台帳ハンドブック</title>
+<style>
+  /* ── トークン(明) ───────────────────────────── */
+  :root {
+    --ground:      #F3F6F5;
+    --surface:     #FFFFFF;
+    --surface-2:   #E8EFED;
+    --ink:         #16232A;
+    --ink-2:       #46595F;
+    --ink-3:       #6E8085;
+    --rule:        #D3DEDB;
+    --rule-strong: #B6C7C3;
+    --accent:      #0E6B62;
+    --accent-ink:  #0A4F48;
+    --accent-wash: #DCEBE8;
+    --ok:          #2C6E4E;
+    --ok-wash:     #DCEBE0;
+    --warn:        #96601C;
+    --warn-wash:   #F3E6CF;
+    --stop:        #A63A38;
+    --stop-wash:   #F3DCDA;
+    --code-bg:     #EDF2F1;
+    --shadow:      0 1px 2px rgba(22,35,42,.05), 0 6px 20px rgba(22,35,42,.05);
+
+    --serif: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Songti SC", ui-serif, Georgia, serif;
+    --sans: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Noto Sans JP", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  /* ── トークン(暗・OS 設定由来) ───────────────── */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0E1416;
+      --surface:     #151E21;
+      --surface-2:   #1D282B;
+      --ink:         #E2EAE8;
+      --ink-2:       #A9BAB8;
+      --ink-3:       #7E9290;
+      --rule:        #2A3A3D;
+      --rule-strong: #3B4F52;
+      --accent:      #55B7A8;
+      --accent-ink:  #7FCEC1;
+      --accent-wash: #17312F;
+      --ok:          #6FBF90;
+      --ok-wash:     #162C21;
+      --warn:        #D8A45C;
+      --warn-wash:   #322614;
+      --stop:        #E08480;
+      --stop-wash:   #331B1A;
+      --code-bg:     #101A1C;
+      --shadow:      0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
+    }
+  }
+  /* ── トークン(暗・明示指定) ───────────────────── */
+  :root[data-theme="dark"] {
+    --ground:      #0E1416;
+    --surface:     #151E21;
+    --surface-2:   #1D282B;
+    --ink:         #E2EAE8;
+    --ink-2:       #A9BAB8;
+    --ink-3:       #7E9290;
+    --rule:        #2A3A3D;
+    --rule-strong: #3B4F52;
+    --accent:      #55B7A8;
+    --accent-ink:  #7FCEC1;
+    --accent-wash: #17312F;
+    --ok:          #6FBF90;
+    --ok-wash:     #162C21;
+    --warn:        #D8A45C;
+    --warn-wash:   #322614;
+    --stop:        #E08480;
+    --stop-wash:   #331B1A;
+    --code-bg:     #101A1C;
+    --shadow:      0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.85;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "palt" 1;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 48px;
+  }
+  @media (min-width: 1040px) {
+    .wrap { grid-template-columns: 210px minmax(0, 1fr); align-items: start; }
+  }
+
+  /* ── ヘッダー ─────────────────────────────── */
+  header.masthead {
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+    margin-bottom: 48px;
+  }
+  .masthead-inner {
+    max-width: 1180px; margin: 0 auto; padding: 56px 28px 40px;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 16px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(30px, 5vw, 46px);
+    line-height: 1.3;
+    letter-spacing: .02em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+  .lede {
+    font-size: 17px;
+    color: var(--ink-2);
+    max-width: 62ch;
+    margin: 0;
+  }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  /* ── 目次 ────────────────────────────────── */
+  nav.toc { display: none; }
+  @media (min-width: 1040px) {
+    nav.toc {
+      display: block;
+      position: sticky; top: 28px;
+      font-size: 13px;
+      line-height: 1.6;
+      border-left: 2px solid var(--rule);
+      padding-left: 16px;
+    }
+    nav.toc p {
+      font-family: var(--mono); font-size: 10px; letter-spacing: .16em;
+      text-transform: uppercase; color: var(--ink-3); margin: 0 0 12px;
+    }
+    nav.toc a {
+      display: block; color: var(--ink-2); text-decoration: none;
+      padding: 5px 0; border-bottom: 1px solid transparent;
+    }
+    nav.toc a:hover { color: var(--accent); }
+    nav.toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+  }
+
+  main { min-width: 0; }
+
+  section { margin: 0 0 64px; scroll-margin-top: 24px; }
+  h2 {
+    font-family: var(--serif);
+    font-size: 25px; font-weight: 600; line-height: 1.4;
+    margin: 0 0 8px; letter-spacing: .02em;
+    text-wrap: balance;
+  }
+  h2 + .sub {
+    color: var(--ink-3); font-size: 14px; margin: 0 0 28px;
+    padding-bottom: 20px; border-bottom: 1px solid var(--rule);
+  }
+  h3 {
+    font-size: 16px; font-weight: 700; margin: 36px 0 10px;
+    letter-spacing: .01em;
+  }
+  h4 { font-size: 14px; font-weight: 700; margin: 22px 0 6px; color: var(--ink-2); }
+  p { margin: 0 0 16px; max-width: 68ch; }
+  ul, ol { margin: 0 0 16px; padding-left: 1.35em; max-width: 68ch; }
+  li { margin: 0 0 7px; }
+  a { color: var(--accent-ink); text-underline-offset: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  strong { font-weight: 700; }
+
+  code {
+    font-family: var(--mono); font-size: .875em;
+    background: var(--code-bg); color: var(--ink);
+    padding: 2px 6px; border-radius: 3px;
+    border: 1px solid var(--rule);
+  }
+  pre {
+    font-family: var(--mono); font-size: 13px; line-height: 1.7;
+    background: var(--code-bg); color: var(--ink);
+    border: 1px solid var(--rule); border-left: 3px solid var(--accent);
+    border-radius: 4px; padding: 16px 18px; margin: 0 0 18px;
+    overflow-x: auto;
+  }
+  pre code { background: none; border: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--ink-3); }
+
+  /* ── 状態チップ ──────────────────────────── */
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+    padding: 3px 9px; border-radius: 100px; white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .chip.live    { color: var(--ok);     background: var(--ok-wash);     border-color: var(--ok); }
+  .chip.partial { color: var(--warn);   background: var(--warn-wash);   border-color: var(--warn); }
+  .chip.planned { color: var(--ink-3);  background: var(--surface-2);   border-color: var(--rule-strong); }
+
+  /* ── 収束の図 ────────────────────────────── */
+  .loop {
+    display: grid; gap: 12px; margin: 0 0 22px;
+    grid-template-columns: 1fr;
+  }
+  @media (min-width: 720px) {
+    .loop { grid-template-columns: 1fr auto 1fr auto 1fr; align-items: stretch; }
+  }
+  .loop-box {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 5px; padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .loop-box.center { border-color: var(--accent); background: var(--accent-wash); }
+  .loop-box .k {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 6px;
+  }
+  .loop-box .t { font-weight: 700; font-size: 15px; margin: 0 0 6px; }
+  .loop-box .d { font-size: 13px; color: var(--ink-2); margin: 0; line-height: 1.7; }
+  .loop-arrow {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--rule-strong); font-size: 20px; font-family: var(--mono);
+  }
+  @media (max-width: 719px) { .loop-arrow { transform: rotate(90deg); } }
+
+  /* ── カード ─────────────────────────────── */
+  .cards { display: grid; gap: 14px; margin: 0 0 20px; }
+  @media (min-width: 700px) { .cards.two { grid-template-columns: 1fr 1fr; } }
+  .card {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 5px; padding: 18px 20px; box-shadow: var(--shadow);
+  }
+  .card h4 { margin-top: 0; color: var(--ink); font-size: 15px; }
+  .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+
+  .role {
+    border: 1px solid var(--rule); border-radius: 5px;
+    background: var(--surface); box-shadow: var(--shadow);
+    margin: 0 0 18px; overflow: hidden;
+  }
+  .role > header {
+    background: var(--surface-2); padding: 12px 20px;
+    border-bottom: 1px solid var(--rule);
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
+  }
+  .role > header .who { font-weight: 700; font-size: 15px; }
+  .role > header .what { font-size: 13px; color: var(--ink-3); }
+  .role .body { padding: 20px 22px 6px; }
+
+  /* ── 表 ─────────────────────────────────── */
+  .tablewrap { overflow-x: auto; margin: 0 0 20px; border: 1px solid var(--rule); border-radius: 5px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 520px; }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 500; background: var(--surface-2); white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td code { white-space: nowrap; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ── 注記 ────────────────────────────────── */
+  .note {
+    border-left: 3px solid var(--accent); background: var(--accent-wash);
+    padding: 14px 18px; border-radius: 0 4px 4px 0; margin: 0 0 20px;
+    font-size: 14.5px;
+  }
+  .note.warn { border-left-color: var(--warn); background: var(--warn-wash); }
+  .note.stop { border-left-color: var(--stop); background: var(--stop-wash); }
+  .note p:last-child { margin-bottom: 0; }
+  .note .lbl {
+    display: block; font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+    text-transform: uppercase; margin-bottom: 6px; color: var(--accent);
+  }
+  .note.warn .lbl { color: var(--warn); }
+  .note.stop .lbl { color: var(--stop); }
+
+  ol.steps { counter-reset: s; list-style: none; padding: 0; max-width: 68ch; }
+  ol.steps > li {
+    counter-increment: s; position: relative; padding-left: 38px; margin: 0 0 14px;
+  }
+  ol.steps > li::before {
+    content: counter(s); position: absolute; left: 0; top: 2px;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--accent); color: var(--surface);
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+  }
+  :root[data-theme="dark"] ol.steps > li::before,
+  :root:not([data-theme="light"]) ol.steps > li::before { color: var(--ground); }
+
+  footer.end {
+    border-top: 1px solid var(--rule); padding-top: 24px; margin-top: 8px;
+    font-size: 13px; color: var(--ink-3);
+  }
+  footer.end p { max-width: 68ch; }
+</style>
+
+<header class="masthead">
+  <div class="masthead-inner">
+    <p class="eyebrow">Koala Heavy Industries — IT Operations</p>
+    <h1>運用台帳ハンドブック</h1>
+    <p class="lede">
+      メンバーのアカウントと権限を、<strong>台帳リポジトリに書いてある状態</strong>へ自動で合わせ続ける仕組みです。
+      追加も、役割変更も、削除も、やることは同じ — 台帳を編集する PR を出してマージするだけ。
+      あとは自動化が実サービスを台帳に追いつかせ、自動化できない作業は担当者にタスクとして依頼し、
+      終わるまで催促します。
+    </p>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav class="toc">
+    <p>目次</p>
+    <a href="#idea">1. 中核の考え方</a>
+    <a href="#parts">2. 構成要素</a>
+    <a href="#member">3. メンバーの追加・変更・削除</a>
+    <a href="#task">4. 依頼が来たとき</a>
+    <a href="#catalog">5. サービス・役割を変える</a>
+    <a href="#ops">6. 環境の運用</a>
+    <a href="#safety">7. 安全装置とルール</a>
+    <a href="#status">8. いま動く範囲</a>
+    <a href="#glossary">9. 用語</a>
+  </nav>
+
+  <main>
+    <!-- ─────────────────────────────────────── -->
+    <section id="idea">
+      <h2>1. 中核の考え方 — 宣言して、収束させる</h2>
+      <p class="sub">「誰に何を付与するか」を人が宣言し、実サービスをそれに合わせ続ける。</p>
+
+      <p>
+        この仕組みには「追加処理」も「削除処理」も存在しません。あるのは
+        <strong>台帳に書かれた「あるべき状態」と、実際の付与状況を比べて、差を埋める</strong>という
+        ひとつのループだけです。追加・役割変更・チーム異動・削除は、そのループの現れ方が違うだけです。
+      </p>
+
+      <div class="loop">
+        <div class="loop-box">
+          <p class="k">desired</p>
+          <p class="t">台帳(members/)</p>
+          <p class="d">人が PR で宣言する「あるべき状態」。役割・所属チーム・在籍状況を書く。</p>
+        </div>
+        <div class="loop-arrow" aria-hidden="true">→</div>
+        <div class="loop-box center">
+          <p class="k">reconcile</p>
+          <p class="t">リコンサイラ</p>
+          <p class="d">差分を計算し、API で実行するか、人へのタスクとして起票する。</p>
+        </div>
+        <div class="loop-arrow" aria-hidden="true">→</div>
+        <div class="loop-box">
+          <p class="k">actual</p>
+          <p class="t">実サービス + state/</p>
+          <p class="d">Keycloak などの実際の状態と、その記録。差が無くなれば「収束」。</p>
+        </div>
+      </div>
+
+      <p>
+        この形にしたことで、いくつかの性質が自動的に手に入ります。
+      </p>
+      <ul>
+        <li><strong>やり残しが定義できる</strong> — 「あるべき状態」と「実態」の差が、そのまま未完了の一覧になります。</li>
+        <li><strong>失敗しても自力で直る</strong> — API 呼び出しが失敗しても差が残るので、翌日の定期実行が再試行します。</li>
+        <li><strong>取り消せる</strong> — 誤った変更は PR を revert すれば、逆方向に収束します。</li>
+        <li><strong>監査証跡が勝手に残る</strong> — 誰がいつ何を承認し、いつ付与されたかが Git の履歴そのものです。</li>
+      </ul>
+
+      <div class="note">
+        <span class="lbl">覚えておくこと</span>
+        <p>削除は「削除処理を走らせる」のではなく、<strong>台帳に「もういない」と書く</strong>だけです。
+        あるべき権限がゼロになるので、差分が全剥奪になります。</p>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────── -->
+    <section id="parts">
+      <h2>2. 構成要素</h2>
+      <p class="sub">2つのリポジトリと、3つのサービス。</p>
+
+      <div class="cards two">
+        <div class="card">
+          <h4>khi-ledger(台帳)</h4>
+          <p>データの置き場。ワークフローやコードは入っていません。</p>
+          <ul>
+            <li><code>members/</code> — 人が PR で編集する「あるべき状態」</li>
+            <li><code>catalog/</code> — 対象サービス、役割マトリクス、チームマトリクス</li>
+            <li><code>state/</code> — 自動化だけが書く「実態」と未完了タスク</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>n8n-test(自動化)</h4>
+          <p>仕組みそのもの。設計ドキュメントと実行環境。</p>
+          <ul>
+            <li><code>workflows/</code> — ワークフロー定義(Git 管理・CLI で反映)</li>
+            <li><code>docs/design/</code> — 設計 00〜08</li>
+            <li><code>compose.yaml</code> / <code>scripts/</code> — 検証環境と運用スクリプト</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>動いているサービス</h3>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>サービス</th><th>役割</th><th>入口</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>n8n</strong></td><td>ワークフローの実行基盤。すべての認証情報を保持する</td><td><code>localhost:5678</code></td></tr>
+            <tr><td><strong>Keycloak</strong></td><td>プロジェクト IdP。従業員と協力会社メンバーの両方が登録される</td><td><code>localhost:8080</code></td></tr>
+            <tr><td><strong>Mailpit</strong></td><td>検証用の受信箱。通知チャネル未決のまま全フローを試せる</td><td><code>localhost:8025</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>ワークフローの構成</h3>
+      <p>
+        機能は小さなサブワークフローに分かれていて、互いを呼び出します。
+        台帳の読み書きは <code>ledger-read</code> / <code>ledger-write</code> に集約されているので、
+        将来データの置き場を変えても呼び出し側は変わりません。
+      </p>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>ワークフロー</th><th>役目</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>reconcile</code></td><td>差分を計算し、適用する。この仕組みの心臓部</td></tr>
+            <tr><td><code>service-keycloak</code></td><td>Keycloak を操作するコネクタ。何度呼んでも同じ結果になる</td></tr>
+            <tr><td><code>ledger-read</code> / <code>ledger-write</code></td><td>台帳の読み書き。競合したら読み直して再試行する</td></tr>
+            <tr><td><code>notify</code></td><td>通知。チャネル依存はここだけに閉じ込めてある</td></tr>
+            <tr><td><code>request-approval</code></td><td>承認リンク付きの依頼を送り、応答まで待つ(汎用)</td></tr>
+            <tr><td><code>remind-scheduler</code></td><td>未完了タスクの催促とエスカレーション、契約期限の監視</td></tr>
+            <tr><td><code>task-complete</code></td><td>完了リンクの受け口。押されるとタスクを閉じる</td></tr>
+            <tr><td><code>cron-daily</code></td><td>毎日9時に <code>reconcile</code> → <code>remind-scheduler</code> を実行</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────── -->
+    <section id="member">
+      <h2>3. メンバーの追加・変更・削除</h2>
+      <p class="sub">やることは全部同じ — 台帳の YAML を編集する PR を出す。</p>
+
+      <div class="role">
+        <header><span class="who">申請する人</span><span class="what">メンバーを迎える / 役割を変える / 抜ける</span></header>
+        <div class="body">
+          <ol class="steps">
+            <li><strong>台帳に PR を出す。</strong> <code>khi-ledger</code> の <code>members/</code> を編集します。</li>
+            <li><strong>レビューを受けてマージする。</strong> このマージが承認そのものです。</li>
+            <li><strong>あとは待つだけ。</strong> 自動でできる操作は数分で反映され、人手が要る作業は担当者にタスクが飛びます。</li>
+          </ol>
+
+          <h4>新しく迎えるとき</h4>
+          <p><code>members/&lt;id&gt;.yaml</code> を新規作成します。<code>&lt;id&gt;</code> はメールアドレスのローカル部です。</p>
+<pre><code>name: 山田 太郎
+email: taro@example.com
+affiliation: employee          <span class="c"># employee か partner:&lt;会社名&gt;</span>
+role: developer                <span class="c"># developer / reviewer / pm / admin</span>
+teams: [alpha]                 <span class="c"># 兼務するなら [alpha, beta]</span>
+status: active
+accounts:
+  github: taro-yamada
+</code></pre>
+          <p>協力会社メンバーの場合は <code>sponsor</code>(受入責任者)と <code>contract_until</code>(契約終了日)が必要です。</p>
+
+          <h4>役割やチームを変えるとき</h4>
+          <p><code>role:</code> や <code>teams:</code> を書き換えるだけです。新旧の差分だけが適用されるので、
+          付け直しは起きません。<code>effective_from:</code> を書けば未来の日付から有効にできます。</p>
+
+          <h4>抜けるとき</h4>
+<pre><code>status: left
+left_at: 2026-09-30    <span class="c"># この日いっぱいは有効。翌日に停止される</span>
+</code></pre>
+          <p><strong>ファイルは消さないでください。</strong> 在籍中の権限履歴の証跡として残します。
+          即時に遮断が必要なインシデント対応では <code>immediate: true</code> を添えます。</p>
+        </div>
+      </div>
+
+      <h3>マージすると何が起きるか</h3>
+      <ul>
+        <li><strong>Keycloak</strong> — ユーザーが作成され、役割とチームに応じたグループに入ります。削除時はアカウント停止(+セッション失効)とグループ全剥奪。</li>
+        <li><strong>ライセンス・Claude など人手が要るもの</strong> — 担当者にタスクが起票され、完了リンク付きの依頼メールが届きます。</li>
+        <li><strong>state/ への記録</strong> — 適用結果が bot によってコミットされます。失敗した分は記録として残り、翌日また試されます。</li>
+      </ul>
+
+      <div class="note warn">
+        <span class="lbl">まだ自動化されていない部分</span>
+        <p>GitHub の Team 所属は現在まだコネクタが未実装で、実行サマリに「未実装」として表示されます。
+        黙って無視されることはありませんが、当面は手動で対応してください。</p>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────── -->
+    <section id="task">
+      <h2>4. 依頼が来たとき</h2>
+      <p class="sub">メールのリンクを開くだけで完了報告になります。</p>
+
+      <div class="role">
+        <header><span class="who">タスクの担当者</span><span class="what">ライセンス購入、アカウント招待など</span></header>
+        <div class="body">
+          <p>
+            自動化できない作業は、メールで依頼が届きます。件名は「未完了のお知らせ」、
+            本文に対象メンバー・手順・期限、そして<strong>完了リンク</strong>が入っています。
+          </p>
+          <ol class="steps">
+            <li><strong>作業する。</strong> 本文の手順に従って購入や招待を行います。</li>
+            <li><strong>完了リンクを開く。</strong> それだけで記録されます。ログインも返信も不要です。</li>
+          </ol>
+          <p>
+            リンクを開くとタスクが閉じ、その権限が付与済みとして台帳に記録されます。
+            これで「あるべき状態」と実態の差が埋まり、以後この依頼は届かなくなります。
+            誤って二度開いても「既に完了しています」と表示されるだけです。
+          </p>
+
+          <h4>放置するとどうなるか</h4>
+          <ul>
+            <li>3日ごとにリマインドが届きます(最大3回)。</li>
+            <li>期限を超えて3回催促しても未完了なら、<strong>管理者へエスカレーション</strong>されます。</li>
+            <li>必須でないタスク(PC の IP 登録など)は催促は続きますが、エスカレーションはされません。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="role">
+        <header><span class="who">受入責任者(sponsor)</span><span class="what">協力会社メンバーの契約管理</span></header>
+        <div class="body">
+          <p>
+            担当している協力会社メンバーの契約終了日が近づくと、30日前から確認メールが届きます。
+            継続するなら <code>contract_until</code> を更新する PR を、終了するなら
+            <code>status: left</code> にする PR を出してください。
+          </p>
+          <div class="note stop">
+            <span class="lbl">重要</span>
+            <p><strong>契約期限が過ぎてもアクセスは自動では止まりません。</strong>
+            契約更新の事務手続きが遅れただけで業務が止まることを避けるための、意図的な判断です。
+            そのぶん、期限超過の通知が届いたら必ず対応してください。放置すると
+            アクセスが残り続けます。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────── -->
+    <section id="catalog">
+      <h2>5. サービス・役割を変える</h2>
+      <p class="sub">対象サービスはコードではなくデータ。増減はカタログの編集だけで済む。</p>
+
+      <p>
+        「どのサービスを、どう扱うか」は <code>catalog/</code> の YAML に書かれています。
+        サービスが増えても減っても、ワークフローには手を入れません。
+      </p>
+
+      <h3>連携のしかたは3つの軸で決まる</h3>
+      <p>操作(追加・変更・削除)ごとに、次を指定します。</p>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>軸</th><th>取りうる値</th><th>意味</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>実行方式</strong><br><code>execute</code></td>
+              <td><code>api</code> / <code>iac-pr</code> / <code>prepared</code> / <code>manual</code> / <code>idp</code></td>
+              <td>誰がどうやって実行するか。API で自動実行するのか、人にタスクを出すのか</td>
+            </tr>
+            <tr>
+              <td><strong>確認方式</strong><br><code>verify</code></td>
+              <td><code>api</code> / <code>event</code> / <code>human</code> / <code>none</code></td>
+              <td>やったことをどう確認するか。<strong>実行が手動でも確認だけ自動化できる</strong>のが要点</td>
+            </tr>
+            <tr>
+              <td><strong>枠</strong><br><code>capacity</code></td>
+              <td>総枠・使用数・閾値</td>
+              <td>シート数の管理。空きが減ったら先回りで調達タスクを起票する</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        実行と確認を分けているのが効きます。書き込み API が無いサービスでも読み取り API さえあれば、
+        タスクは人の報告を待たずに自動で閉じられますし、
+        <strong>フローを通さず管理画面で直接行われた変更も検出できます</strong>。
+      </p>
+
+      <h3>よくある変更</h3>
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>やりたいこと</th><th>やること</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>対象サービスを増やす</td><td><code>catalog/services.yaml</code> に1エントリ追加。自動実行するならコネクタを1本作る</td></tr>
+            <tr><td>対象サービスを外す</td><td><code>enabled: false</code> にする(履歴保持のため行は消さない)</td></tr>
+            <tr><td>手動運用を自動化に昇格</td><td>コネクタを作り、<code>execute</code> を <code>api</code> に変える</td></tr>
+            <tr><td>役割ごとの権限を変える</td><td><code>catalog/role-matrix.yaml</code> を編集</td></tr>
+            <tr><td>チームを新設する</td><td><code>catalog/team-matrix.yaml</code> に追加</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <span class="lbl">カタログの変更は影響が広い</span>
+        <p>1行の編集が全メンバーに波及します。剥奪が一定数を超えるとリコンサイラが自動で停止するので、
+        大規模な変更を意図して行うときは事前に周知してください。</p>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────── -->
+    <section id="ops">
+      <h2>6. 環境の運用</h2>
+      <p class="sub">起動、ワークフローの反映、状態の確認。</p>
+
+      <h3>起動する</h3>
+<pre><code>cp .env.example .env          <span class="c"># 秘密値を埋める</span>
+docker compose up -d
+./scripts/setup-keycloak.py   <span class="c"># realm・グループ・サービスアカウント(何度でも実行可)</span>
+./scripts/import-credentials.py
+./scripts/deploy-workflows.py
+</code></pre>
+
+      <h3>ワークフローを直したら</h3>
+      <p>
+        ワークフローは n8n の画面ではなく <code>workflows/*.json</code> で管理します。
+        画面で編集すると Git と食い違うので、必ずファイルを直してから反映してください。
+      </p>
+<pre><code>./scripts/deploy-workflows.py   <span class="c"># インポート → 有効化 → 再起動</span>
+</code></pre>
+
+      <h3>動きを確かめる</h3>
+<pre><code><span class="c"># 台帳と実サービスを今すぐ収束させる</span>
+./scripts/run-workflow.py reconcile '{}'
+
+<span class="c"># 台帳の中身を見る</span>
+./scripts/run-workflow.py ledger-read '{"kind":"members"}'
+</code></pre>
+      <p>
+        送信されたメールはすべて <a href="http://localhost:8025">Mailpit</a> で確認できます。
+        通知チャネル(Gmail / Slack)が未決のままでも、承認・依頼・催促の全フローをここで検証できます。
+      </p>
+
+      <div class="note">
+        <span class="lbl">検証時の注意</span>
+        <p>待機を含むフロー(承認)や多段のサブワークフロー呼び出しは、CLI 実行では正しく動きません。
+        稼働中のインスタンスで動かす必要があるため、Webhook トリガーの一時ワークフローから
+        呼び出して確認します。実運用は定期実行と Webhook 起動なので影響はありません。</p>
+      </div>
+
+      <h3>いつ何が走るか</h3>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>タイミング</th><th>処理</th></tr></thead>
+          <tbody>
+            <tr><td class="num">毎日 9:00</td><td>差分の収束 → 未完了タスクの催促・エスカレーション・契約期限の確認</td></tr>
+            <tr><td>台帳のマージ時</td><td>即時の収束(予定。現在は日次のみ)</td></tr>
+            <tr><td>完了リンクのクリック時</td><td>タスクを閉じ、権限を記録</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────── -->
+    <section id="safety">
+      <h2>7. 安全装置とルール</h2>
+      <p class="sub">壊れ方をあらかじめ決めてある。</p>
+
+      <div class="cards two">
+        <div class="card">
+          <h4>大量剥奪を止める</h4>
+          <p>1回の実行で剥奪が5件を超えると、<strong>何も適用せずに停止</strong>します。
+          マトリクスの編集ミスで全員のアクセスが一斉に消える事故を防ぐためです。
+          意図した一括処理なら上限を一時的に上げます。</p>
+        </div>
+        <div class="card">
+          <h4>失敗しても止まらない</h4>
+          <p>あるサービスの操作が失敗しても、他のサービスの処理は続きます。
+          失敗は台帳に記録され、差が残るので翌日また試されます。</p>
+        </div>
+        <div class="card">
+          <h4>権限が残る方向の失敗は監査で拾う</h4>
+          <p>付与の失敗は業務が止まるので気づきます。剥奪の失敗は気づきにくいため、
+          未収束として一覧に残り続けます。契約期限切れも自動遮断せず、通知で対応を促します。</p>
+        </div>
+        <div class="card">
+          <h4>自動化自身も監視対象</h4>
+          <p>n8n はすべての認証情報を持ち、台帳の承認プロセスを技術的には迂回できます。
+          <strong>n8n の管理者権限は台帳の承認者と同等以上の特権</strong>として扱ってください。</p>
+        </div>
+      </div>
+
+      <h3>守ってほしいルール</h3>
+      <ul>
+        <li><strong><code>state/</code> は手で編集しない。</strong> 自動化の管理領域です。実態と食い違うと収束の判断が狂います。</li>
+        <li><strong>ワークフローは画面で編集しない。</strong> Git のファイルを直して反映します。</li>
+        <li><strong>緊急時は先に止めてよい。</strong> インシデント対応では Keycloak を直接停止して構いません。
+        ただし<strong>24時間以内に台帳へ追随する PR</strong> を出してください。出さないと監査で「不明な変更」として報告され続けます。</li>
+      </ul>
+    </section>
+
+    <!-- ─────────────────────────────────────── -->
+    <section id="status">
+      <h2>8. いま動く範囲</h2>
+      <p class="sub">実機で確認できているものと、これからのもの。</p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>機能</th><th>状態</th><th>補足</th></tr></thead>
+          <tbody>
+            <tr><td>メンバーの追加・役割変更・チーム異動・削除</td><td><span class="chip live">動作</span></td><td>Keycloak への反映まで通し確認済み</td></tr>
+            <tr><td>台帳の読み書き</td><td><span class="chip live">動作</span></td><td>競合時の再試行を含む</td></tr>
+            <tr><td>タスク起票・催促・完了リンク</td><td><span class="chip live">動作</span></td><td>エスカレーションまで確認済み</td></tr>
+            <tr><td>通知・承認リンク</td><td><span class="chip live">動作</span></td><td>宛先は Mailpit。本番チャネルは未決</td></tr>
+            <tr><td>大量剥奪の停止</td><td><span class="chip live">動作</span></td><td>停止時は実サービス無変更を確認済み</td></tr>
+            <tr><td>GitHub Team の自動反映</td><td><span class="chip planned">未実装</span></td><td>サマリに「未実装」と表示される</td></tr>
+            <tr><td>PC・サーバ・IP の登録</td><td><span class="chip planned">未実装</span></td><td>NetBox の追加が必要</td></tr>
+            <tr><td>定期監査・再認定</td><td><span class="chip planned">未実装</span></td><td>実サービスとの突合、半期の棚卸し</td></tr>
+            <tr><td>台帳の CI 検証・ブランチ保護</td><td><span class="chip partial">一部</span></td><td>検証環境では保護設定が使えない。本番移行時の必須項目</td></tr>
+            <tr><td>マージ時の即時反映</td><td><span class="chip partial">一部</span></td><td>現在は日次のみ。取りこぼしても翌日収束する</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note stop">
+        <span class="lbl">本番移行前に必ず</span>
+        <p>検証環境のリポジトリではブランチ保護が使えないため、
+        <strong>「申請者≠承認者」「force push 禁止」「bot の書き込みを state/ に限定」</strong>は
+        まだ規約であって強制ではありません。本番の台帳は保護設定を有効にしてから運用を開始してください。</p>
+      </div>
+    </section>
+
+    <!-- ─────────────────────────────────────── -->
+    <section id="glossary">
+      <h2>9. 用語</h2>
+      <p class="sub">この資料と設計ドキュメントで使う言葉。</p>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>用語</th><th>意味</th></tr></thead>
+          <tbody>
+            <tr><td><strong>台帳</strong></td><td>権限のあるべき状態と実態を記録した Git リポジトリ(<code>khi-ledger</code>)</td></tr>
+            <tr><td><strong>収束</strong></td><td>あるべき状態と実態が一致していること。差があれば未完了</td></tr>
+            <tr><td><strong>リコンサイラ</strong></td><td>差分を計算して埋めるワークフロー(<code>reconcile</code>)</td></tr>
+            <tr><td><strong>grant</strong></td><td>「このサービスでこの権限」を表す値。例: <code>group:team-alpha</code></td></tr>
+            <tr><td><strong>コネクタ</strong></td><td>個々のサービスを操作するワークフロー。何度呼んでも同じ結果になるよう作る</td></tr>
+            <tr><td><strong>チームと Team</strong></td><td>「チーム」は組織上の単位(alpha)。「Team」はそれを GitHub 上で表したもの(alpha-devs)</td></tr>
+            <tr><td><strong>キルスイッチ</strong></td><td>Keycloak のアカウント停止。SSO 経由のアクセスをまとめて止める手段</td></tr>
+            <tr><td><strong>fail-open</strong></td><td>失敗したときにアクセスが残る側に倒れること。どの失敗がそうなるかは設計書 08 に一覧がある</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <footer class="end">
+        <p>
+          詳細な設計判断とその理由は、<code>n8n-test</code> リポジトリの <code>docs/design/</code> にあります
+          (00 全体像 / 01 メンバーライフサイクル / 03 カタログと台帳 / 04 通知と承認 /
+          05 実行環境 / 06 GitHub 連携 / 08 統制と安全装置)。
+          この資料は実装済みの範囲を運用者向けにまとめたものです。
+        </p>
+      </footer>
+    </section>
+  </main>
+</div>

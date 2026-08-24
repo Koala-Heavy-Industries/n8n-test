@@ -20,7 +20,7 @@
 | ロードマップ | 状態 |
 |---|---|
 | 1. 検証環境(n8n / Keycloak / Mailpit) | ✅ 完了 |
-| 2. 台帳リポジトリ([khi-ledger](https://github.com/Koala-Heavy-Industries/khi-ledger)) | 🟡 構成とカタログ投入済み。CI 検証は未実装 |
+| 2. 台帳リポジトリ([khi-ledger](https://github.com/Koala-Heavy-Industries/khi-ledger)) | ✅ 完了 — 構成・カタログ・CI(スキーマ検証 / state 保護 / 権限差分プレビュー)|
 | 3. 土台サブWF | ✅ 完了 — `ledger-read` / `ledger-write` / `notify` / `request-approval` すべて実機で動作確認 |
 | 4. リコンサイラ + service-keycloak | ✅ 完了 — 台帳の変更が Keycloak に反映されるところまで実機で確認 |
 | 5. remind-scheduler・タスク起票・完了リンク | ✅ 完了 — 起票→リマインド→完了→収束、エスカレーションまで確認 |

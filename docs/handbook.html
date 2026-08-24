@@ -725,7 +725,8 @@ docker compose up -d
             <tr><td>GitHub Team の自動反映</td><td><span class="chip planned">未実装</span></td><td>サマリに「未実装」と表示される</td></tr>
             <tr><td>PC・サーバ・IP の登録</td><td><span class="chip planned">未実装</span></td><td>NetBox の追加が必要</td></tr>
             <tr><td>定期監査・再認定</td><td><span class="chip planned">未実装</span></td><td>実サービスとの突合、半期の棚卸し</td></tr>
-            <tr><td>台帳の CI 検証・ブランチ保護</td><td><span class="chip partial">一部</span></td><td>検証環境では保護設定が使えない。本番移行時の必須項目</td></tr>
+            <tr><td>台帳の CI 検証</td><td><span class="chip live">動作</span></td><td>スキーマ・制約の検証、state/ の保護、権限差分のプレビュー</td></tr>
+            <tr><td>ブランチ保護(申請者≠承認者)</td><td><span class="chip planned">未設定</span></td><td>検証環境の制約で設定できない。本番移行時の必須項目</td></tr>
             <tr><td>マージ時の即時反映</td><td><span class="chip partial">一部</span></td><td>現在は日次のみ。取りこぼしても翌日収束する</td></tr>
           </tbody>
         </table>

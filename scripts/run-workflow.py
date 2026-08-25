@@ -2,14 +2,13 @@
 """サブワークフローに入力を与えて実行し、結果を表示する(開発・検証用)。
 
   ./scripts/run-workflow.py ledger-read '{"kind": "members"}'
-  ./scripts/run-workflow.py ledger-read '{"kind":"members","id":"sample-dev"}' --raw
+  ./scripts/run-workflow.py pc-register '{...}' --webhook pc-register
 
-仕組み: 入力を返す Code ノード + Execute Workflow ノードだけの一時ワークフローを
-作り、CLI で実行してから削除する。n8n の API キーを使わずに済ませるため。
+素のサブワークフローは CLI で実行する。待機や多段のサブワークフロー呼び出しを
+含む入口フローは CLI では動かないため、--webhook でその入口を直接叩く。
 
 注意: 呼び出される側のワークフローは active である必要がある
-      (docker compose exec -T n8n n8n update:workflow --id=<id> --active=true
-       のあと n8n を再起動)。
+      (./scripts/deploy-workflows.py が有効化と再起動をまとめて行う)。
 """
 import argparse
 import json
@@ -40,9 +39,11 @@ def main():
     ap.add_argument("workflow", help="ワークフロー名または ID")
     ap.add_argument("input", nargs="?", default="{}", help="入力 JSON")
     ap.add_argument("--raw", action="store_true", help="生の実行結果を表示")
+    ap.add_argument("--webhook", default=None,
+                    help="Webhook パス(入口フロー用。CLI では動かないフローに使う)")
     args = ap.parse_args()
 
-    target = find_workflow_id(args.workflow)
+    target = args.workflow if args.webhook else find_workflow_id(args.workflow)
     if not target:
         print(f"✗ ワークフローが見つかりません: {args.workflow}", file=sys.stderr)
         sys.exit(1)
@@ -53,6 +54,26 @@ def main():
         print(f"✗ 入力 JSON が不正です: {e}", file=sys.stderr)
         sys.exit(1)
 
+    if args.webhook:
+        # Webhook トリガーを持つ入口フロー用。稼働中インスタンスが実行するため、
+        # 待機や多段のサブワークフロー呼び出しを含んでいても正しく動く。
+        res = sh(["curl", "-s", "-X", "POST", "-H", "Content-Type: application/json",
+                  "--max-time", "600", "-d", json.dumps(payload, ensure_ascii=False),
+                  f"http://localhost:5678/webhook/{args.webhook}"])
+        raw = res.stdout + res.stderr
+        if args.raw:
+            print(raw)
+            return
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            print("✗ 応答を解釈できませんでした(ワークフローが有効か確認してください)")
+            print(raw[:800])
+            sys.exit(1)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+
+    # 素のサブワークフローは CLI で実行する
     caller = {
         "id": TMP_ID,
         "name": "tmp-runner",
@@ -64,7 +85,7 @@ def main():
              "id": "e0000000-0000-4000-8000-000000000002", "name": "Input",
              "type": "n8n-nodes-base.code", "typeVersion": 2, "position": [200, 0]},
             {"parameters": {"workflowId": {"__rl": True, "value": target, "mode": "id"},
-                            "options": {}},
+                            "mode": "each", "options": {}},
              "id": "e0000000-0000-4000-8000-000000000003", "name": "Call",
              "type": "n8n-nodes-base.executeWorkflow", "typeVersion": 1.2,
              "position": [400, 0]},
@@ -84,7 +105,6 @@ def main():
               "n8n", "n8n", "execute", "--id", TMP_ID])
     raw = res.stdout + res.stderr
 
-    # 後始末(CLI に delete コマンドが無いため DB から消す)
     sh(["docker", "compose", "exec", "-T", "n8n-postgres", "psql", "-U", "n8n", "-d", "n8n",
         "-c", f"DELETE FROM workflow_entity WHERE id = '{TMP_ID}';"])
 

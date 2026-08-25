@@ -1,0 +1,507 @@
+{
+  "id": "pcregister000001",
+  "name": "pc-register",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pc-register",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "61000000-0000-4000-8000-000000000010",
+      "name": "登録の受け口(POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        -160
+      ],
+      "webhookId": "a4b8e1c2-7d39-4f52-8b61-3e5a9c0d7f24"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Webhook 経由の入力は body に入る。フォームからもここに POST する。\nreturn [{ json: $input.first().json.body ?? {} }];"
+      },
+      "id": "61000000-0000-4000-8000-000000000011",
+      "name": "受け取った内容を取り出す",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        -160
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "61000000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// PC 登録。新規購入も他部署からの搬入も同じ入口で扱う。\n// 入力: {\n//   acquisition: 'purchase'|'transfer', user_name, user_email, model, acquired_at,\n//   purpose: 'dev'|'test'|'misc',\n//   asset_no, asset_no_provisional, computer_name, computer_name_provisional,\n//   ip?, installed?: ['jetbrains', ...]\n// }\n// 設計: docs/design/02-pc-register.md\n\nconst i = $input.first()?.json ?? {};\nconst need = ['user_email', 'model', 'acquired_at', 'asset_no', 'computer_name'];\nconst missing = need.filter((k) => !i[k]);\nif (missing.length) throw new Error(`pc-register: 必須項目がありません: ${missing.join(', ')}`);\n\nif (!['purchase', 'transfer'].includes(i.acquisition ?? 'purchase')) {\n  throw new Error(`pc-register: acquisition は purchase か transfer です: ${i.acquisition}`);\n}\n// 資産管理番号は state のファイル名になるため、パスに使える形に限る\nif (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(i.asset_no))) {\n  throw new Error(`pc-register: 資産管理番号に使えない文字が含まれます: ${i.asset_no}`);\n}\n\nreturn [{ json: {\n  base: `${$env.NETBOX_URL}/api`,\n  acquisition: i.acquisition ?? 'purchase',\n  userName: i.user_name ?? '',\n  userEmail: i.user_email,\n  model: i.model,\n  acquiredAt: i.acquired_at,\n  purpose: i.purpose ?? 'dev',\n  assetNo: String(i.asset_no),\n  assetProvisional: i.asset_no_provisional === true,\n  computerName: String(i.computer_name),\n  nameProvisional: i.computer_name_provisional === true,\n  ip: i.ip || null,\n  installed: Array.isArray(i.installed) ? i.installed : [],\n}}];"
+      },
+      "id": "61000000-0000-4000-8000-000000000002",
+      "name": "入力を検証する",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.base }}/dcim/devices/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "name__ie",
+              "value": "={{ $json.computerName }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "61000000-0000-4000-8000-000000000003",
+      "name": "名前の重複を確認",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -240,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "netbox",
+          "name": "NetBox"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('入力を検証する').first().json.base }}/dcim/devices/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "asset_tag__ie",
+              "value": "={{ $('入力を検証する').first().json.assetNo }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "61000000-0000-4000-8000-000000000004",
+      "name": "資産番号の重複を確認",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -20,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "netbox",
+          "name": "NetBox"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 重複していたら自動リネームせず差し戻す(勝手に名前を変えない)。\nconst ctx = $('入力を検証する').first().json;\nconst byName = $('名前の重複を確認').first().json;\nconst byAsset = $input.first().json;\n\nconst dup = [];\nif ((byName?.count ?? 0) > 0) dup.push(`コンピュータ名 '${ctx.computerName}'`);\nif ((byAsset?.count ?? 0) > 0) dup.push(`資産管理番号 '${ctx.assetNo}'`);\nif (dup.length) {\n  throw new Error(`pc-register: 既に登録されています(${dup.join(' / ')})。値を確認して再申請してください`);\n}\n\nreturn [{ json: ctx }];"
+      },
+      "id": "61000000-0000-4000-8000-000000000005",
+      "name": "重複を判定する",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.base }}/dcim/devices/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ name: $json.computerName, asset_tag: $json.assetNo, device_type: { slug: 'generic-laptop' }, role: { slug: 'dev-pc' }, site: { slug: 'khi-office' }, status: 'active', tags: ($json.assetProvisional || $json.nameProvisional) ? [{ slug: 'provisional' }] : [], custom_fields: { owner_email: $json.userEmail, purpose: $json.purpose }, comments: `利用者: ${$json.userName} <${$json.userEmail}>\\n機種: ${$json.model}\\n取得: ${$json.acquiredAt}(${$json.acquisition === 'transfer' ? '他部署からの搬入' : '新規購入'})` }) }}",
+        "options": {}
+      },
+      "id": "61000000-0000-4000-8000-000000000006",
+      "name": "NetBox に登録",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "netbox",
+          "name": "NetBox"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 登録できなければ止める。呼び出し側(将来のフォーム)が\n// 管理者へのエスカレーションと手動登録タスクに切り替える。\nconst ctx = $('重複を判定する').first().json;\nconst res = $input.first()?.json ?? {};\nif (!res.id) {\n  const detail = res.error?.message ?? JSON.stringify(res).slice(0, 200);\n  throw new Error(`pc-register: NetBox への登録に失敗しました: ${detail}`);\n}\nreturn [{ json: { ...ctx, deviceId: res.id, kind: 'catalog' } }];"
+      },
+      "id": "61000000-0000-4000-8000-000000000007",
+      "name": "登録結果を確認",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-ip",
+              "leftValue": "={{ $json.ip ? 'yes' : 'no' }}",
+              "rightValue": "yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "61000000-0000-4000-8000-000000000008",
+      "name": "IPの指定があるか",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        860,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nbassignip00001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "61000000-0000-4000-8000-000000000009",
+      "name": "IPを割り当てる",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1080,
+        -120
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { skippedIp: true } }];"
+      },
+      "id": "61000000-0000-4000-8000-00000000000a",
+      "name": "IPなしで進む",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { kind: 'catalog' } }];"
+      },
+      "id": "61000000-0000-4000-8000-00000000000b",
+      "name": "カタログ読み取りの入力",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ledgerread00001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "61000000-0000-4000-8000-00000000000c",
+      "name": "必須ソフトを読む",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1520,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 起票するタスクを組み立てて state/pcs/<資産管理番号>.yaml に書く入力を作る。\n//   pc-license        必須ソフトの購入(導入済みのものは除く)\n//   pc-official-info  仮の値を正式な値に置き換える(blocking)\n//   pc-ip             IP の登録(blocking: false — 強制しないが漏れは追う)\n\nconst crypto = require('crypto');\nconst ctx = $('登録結果を確認').first().json;\n\nconst catalog = {};\nfor (const it of $input.all()) catalog[it.json.id] = it.json.desired;\nconst software = (catalog['pc-software']?.software ?? []).filter((s) => s.enabled !== false);\n\nlet ipResult = null;\ntry { ipResult = $('IPを割り当てる').first().json; } catch (e) { ipResult = null; }\nconst ipAssigned = ipResult?.ok === true;\n\nconst webhookBase = String($env.WEBHOOK_URL ?? 'http://localhost:5678/').replace(/\\/$/, '');\nconst acquired = new Date(ctx.acquiredAt);\nconst iso = (d) => d.toISOString().slice(0, 10);\nconst due = (days) => { const d = new Date(acquired); d.setDate(d.getDate() + days); return iso(d); };\n\nconst tasks = [];\nconst mkTask = (t) => {\n  const token = crypto.randomBytes(16).toString('hex');\n  return { ...t, status: 'open', remind_count: 0, last_reminded_at: null, token,\n    created_at: new Date().toISOString(),\n    complete_url: `${webhookBase}/webhook/task-complete?kind=pcs`\n      + `&member=${encodeURIComponent(ctx.assetNo)}&task=${encodeURIComponent(t.id)}&token=${token}` };\n};\n\nfor (const s of software) {\n  if (ctx.installed.includes(s.id)) continue;   // 搬入 PC などで導入済み\n  tasks.push(mkTask({\n    id: `pc-license:${s.id}`,\n    kind: 'pc-license',\n    subject: `${ctx.computerName} / ${ctx.userName || ctx.userEmail} 向けに ${s.name} を購入する`,\n    steps: s.vendor_url ? `購入先: ${s.vendor_url}` : '',\n    assignee: $env[s.assignee] || s.assignee || $env.ADMIN_EMAILS,\n    due: due(Number(s.due_days ?? 7)),\n    verify: s.verify ?? 'human',\n    blocking: true,\n  }));\n}\n\nif (ctx.assetProvisional || ctx.nameProvisional) {\n  const which = [ctx.assetProvisional ? '資産管理番号' : null, ctx.nameProvisional ? 'コンピュータ名' : null]\n    .filter(Boolean).join(' と ');\n  tasks.push(mkTask({\n    id: 'pc-official-info',\n    kind: 'pc-official-info',\n    subject: `${ctx.computerName}: 正式な${which}を反映する`,\n    steps: '情シスの採番後、機器情報更新フォームか NetBox で更新してください',\n    assignee: $env.ADMIN_EMAILS,\n    due: due(14),   // 情シスの採番リードタイムを考慮して緩め\n    verify: 'api',\n    blocking: true,\n  }));\n}\n\nif (!ipAssigned) {\n  tasks.push(mkTask({\n    id: 'pc-ip',\n    kind: 'pc-ip',\n    subject: `${ctx.computerName}: IP アドレスを登録する`,\n    steps: 'キッティング後、機器情報更新フォームか NetBox で登録してください',\n    assignee: ctx.userEmail,\n    due: null,          // 期限なし。リマインド間隔だけで追いかける\n    verify: 'api',\n    blocking: false,    // 未登録でも active を妨げない\n  }));\n}\n\nconst blocking = tasks.filter((t) => t.blocking).length;\n\nreturn [{ json: {\n  kind: 'pcs',\n  id: ctx.assetNo,\n  patch: {\n    netbox_device_id: ctx.deviceId,\n    user: ctx.userEmail,\n    acquisition: ctx.acquisition,\n    acquired_at: ctx.acquiredAt,\n    computer_name: { value: ctx.computerName, provisional: ctx.nameProvisional },\n    asset_no: { value: ctx.assetNo, provisional: ctx.assetProvisional },\n    ip_address: ipAssigned ? ipResult.ip : null,\n    status: blocking > 0 ? 'license-pending' : 'active',\n    tasks,\n    updated_at: new Date().toISOString(),\n  },\n  reason: `PC 登録(${ctx.acquisition === 'transfer' ? '搬入' : '新規購入'})`,\n  __summary: {\n    assetNo: ctx.assetNo, computerName: ctx.computerName, deviceId: ctx.deviceId,\n    ip: ipAssigned ? ipResult.ip : null, tasks: tasks.map((t) => t.subject),\n  },\n}}];"
+      },
+      "id": "61000000-0000-4000-8000-00000000000d",
+      "name": "タスクを組み立てる",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1740,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ledgerwrite00001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "61000000-0000-4000-8000-00000000000e",
+      "name": "PC台帳に書く",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $('タスクを組み立てる').first().json.__summary;\nconst write = $input.first()?.json ?? {};\nreturn [{ json: {\n  ok: write.ok === true,\n  asset_no: s.assetNo,\n  computer_name: s.computerName,\n  netbox_device_id: s.deviceId,\n  netbox_url: `${String($env.NETBOX_URL).replace('netbox:8080', 'localhost:8000')}/dcim/devices/${s.deviceId}/`,\n  ip: s.ip,\n  tasks: s.tasks,\n  ledger: write.path ?? null,\n}}];"
+      },
+      "id": "61000000-0000-4000-8000-00000000000f",
+      "name": "結果を返す",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "入力を検証する",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "入力を検証する": {
+      "main": [
+        [
+          {
+            "node": "名前の重複を確認",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "名前の重複を確認": {
+      "main": [
+        [
+          {
+            "node": "資産番号の重複を確認",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "資産番号の重複を確認": {
+      "main": [
+        [
+          {
+            "node": "重複を判定する",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "重複を判定する": {
+      "main": [
+        [
+          {
+            "node": "NetBox に登録",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetBox に登録": {
+      "main": [
+        [
+          {
+            "node": "登録結果を確認",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "登録結果を確認": {
+      "main": [
+        [
+          {
+            "node": "IPの指定があるか",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IPの指定があるか": {
+      "main": [
+        [
+          {
+            "node": "IPを割り当てる",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IPなしで進む",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IPを割り当てる": {
+      "main": [
+        [
+          {
+            "node": "カタログ読み取りの入力",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IPなしで進む": {
+      "main": [
+        [
+          {
+            "node": "カタログ読み取りの入力",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "カタログ読み取りの入力": {
+      "main": [
+        [
+          {
+            "node": "必須ソフトを読む",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "必須ソフトを読む": {
+      "main": [
+        [
+          {
+            "node": "タスクを組み立てる",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "タスクを組み立てる": {
+      "main": [
+        [
+          {
+            "node": "PC台帳に書く",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PC台帳に書く": {
+      "main": [
+        [
+          {
+            "node": "結果を返す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "登録の受け口(POST)": {
+      "main": [
+        [
+          {
+            "node": "受け取った内容を取り出す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "受け取った内容を取り出す": {
+      "main": [
+        [
+          {
+            "node": "入力を検証する",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 600
+  }
+}

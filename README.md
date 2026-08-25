@@ -24,11 +24,15 @@
 | 3. 土台サブWF | ✅ 完了 — `ledger-read` / `ledger-write` / `notify` / `request-approval` すべて実機で動作確認 |
 | 4. リコンサイラ + service-keycloak | ✅ 完了 — 台帳の変更が Keycloak に反映されるところまで実機で確認 |
 | 5. remind-scheduler・タスク起票・完了リンク | ✅ 完了 — 起票→リマインド→完了→収束、エスカレーションまで確認 |
-| 6〜11(PC/サーバ、service-github、監査、安全装置ほか) | ⬜ 未着手 |
+| 6. PC 登録(NetBox) | 🟡 環境・`pc-register` / `netbox-assign-ip` 実装済み。**動作未検証**(Docker のメモリ不足で NetBox と n8n を同時に動かせず中断) |
+| 7〜11(サーバ/VM、service-github、監査、安全装置ほか) | ⬜ 未着手 |
 
 → [実装ロードマップ](docs/design/05-environment.md#実装フェーズのロードマップ)
 
 ## 検証環境の起動
+
+> **Docker に 4 GiB 以上のメモリを割り当ててください。** 2 GiB 程度だと
+> n8n が繰り返し停止します(→ [05](docs/design/05-environment.md#必要なリソース))。
 
 ```bash
 cp .env.example .env       # 秘密値を埋める(openssl rand -hex 32 など)

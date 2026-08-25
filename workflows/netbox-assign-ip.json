@@ -1,0 +1,182 @@
+{
+  "id": "nbassignip00001",
+  "name": "netbox-assign-ip",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "51000000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [-460, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 入力: { deviceId, ip }  出力: { ok, ip, interfaceId }\n//\n// NetBox では IP はインターフェースに紐づく。デバイスに直接は付かないため、\n// eth0 を用意してそこへ割り当て、デバイスの primary_ip4 に設定する。\n// PC 登録・機器情報更新の双方から呼ぶ。\n// 設計: docs/design/02-pc-register.md / 07-servers.md\n\nconst inp = $input.first()?.json ?? {};\nif (!inp.deviceId) throw new Error('netbox-assign-ip: deviceId は必須です');\nif (!inp.ip) throw new Error('netbox-assign-ip: ip は必須です');\n\n// マスク無しなら /24 を補う(検証環境のプレフィックスに合わせる)\nconst address = String(inp.ip).includes('/') ? String(inp.ip) : `${inp.ip}/24`;\n\nreturn [{ json: {\n  base: `${$env.NETBOX_URL}/api`,\n  deviceId: inp.deviceId,\n  address,\n  ifName: inp.interface || 'eth0',\n}}];"
+      },
+      "id": "51000000-0000-4000-8000-000000000002",
+      "name": "入力を検証する",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-240, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.base }}/dcim/interfaces/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ device: $json.deviceId, name: $json.ifName, type: 'other' }) }}",
+        "options": {}
+      },
+      "id": "51000000-0000-4000-8000-000000000003",
+      "name": "インターフェースを作る(既存なら失敗してよい)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-20, 0],
+      "onError": "continueRegularOutput",
+      "credentials": { "httpHeaderAuth": { "id": "netbox", "name": "NetBox" } }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('入力を検証する').first().json.base }}/dcim/interfaces/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "device_id", "value": "={{ $('入力を検証する').first().json.deviceId }}" },
+            { "name": "name", "value": "={{ $('入力を検証する').first().json.ifName }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "51000000-0000-4000-8000-000000000004",
+      "name": "インターフェースを取得",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, 0],
+      "credentials": { "httpHeaderAuth": { "id": "netbox", "name": "NetBox" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 作成でも既存でも、ここでインターフェース ID が確定する(冪等)。\nconst ctx = $('入力を検証する').first().json;\nconst res = $input.first()?.json ?? {};\nconst iface = (res.results && res.results[0]) || res;\nif (!iface || !iface.id) {\n  throw new Error(`netbox-assign-ip: インターフェース ${ctx.ifName} を用意できませんでした`);\n}\nreturn [{ json: { ...ctx, interfaceId: iface.id } }];"
+      },
+      "id": "51000000-0000-4000-8000-000000000005",
+      "name": "インターフェースIDを確定",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.base }}/ipam/ip-addresses/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ address: $json.address, status: 'active', assigned_object_type: 'dcim.interface', assigned_object_id: $json.interfaceId }) }}",
+        "options": {}
+      },
+      "id": "51000000-0000-4000-8000-000000000006",
+      "name": "IPを登録(既存なら失敗してよい)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 0],
+      "onError": "continueRegularOutput",
+      "credentials": { "httpHeaderAuth": { "id": "netbox", "name": "NetBox" } }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('インターフェースIDを確定').first().json.base }}/ipam/ip-addresses/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "address", "value": "={{ $('インターフェースIDを確定').first().json.address }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "51000000-0000-4000-8000-000000000007",
+      "name": "IPを取得",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [860, 0],
+      "credentials": { "httpHeaderAuth": { "id": "netbox", "name": "NetBox" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 既に別の機器に割り当てられている IP を横取りしないよう確認する。\nconst ctx = $('インターフェースIDを確定').first().json;\nconst res = $input.first()?.json ?? {};\nconst ip = (res.results && res.results[0]) || res;\nif (!ip || !ip.id) throw new Error(`netbox-assign-ip: ${ctx.address} を登録できませんでした`);\n\nconst assigned = ip.assigned_object_id;\nif (assigned && assigned !== ctx.interfaceId) {\n  throw new Error(`netbox-assign-ip: ${ctx.address} は既に別の機器に割り当てられています`);\n}\nreturn [{ json: { ...ctx, ipId: ip.id, needsAssign: !assigned } }];"
+      },
+      "id": "51000000-0000-4000-8000-000000000008",
+      "name": "重複割当を確認",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 0]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $json.base }}/ipam/ip-addresses/{{ $json.ipId }}/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ assigned_object_type: 'dcim.interface', assigned_object_id: $json.interfaceId }) }}",
+        "options": {}
+      },
+      "id": "51000000-0000-4000-8000-000000000009",
+      "name": "インターフェースへ割り当て",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1300, 0],
+      "credentials": { "httpHeaderAuth": { "id": "netbox", "name": "NetBox" } }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('重複割当を確認').first().json.base }}/dcim/devices/{{ $('重複割当を確認').first().json.deviceId }}/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ primary_ip4: $('重複割当を確認').first().json.ipId }) }}",
+        "options": {}
+      },
+      "id": "51000000-0000-4000-8000-00000000000a",
+      "name": "primary_ip4 に設定",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 0],
+      "credentials": { "httpHeaderAuth": { "id": "netbox", "name": "NetBox" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('重複割当を確認').first().json;\nreturn [{ json: { ok: true, ip: ctx.address, interfaceId: ctx.interfaceId, ipId: ctx.ipId } }];"
+      },
+      "id": "51000000-0000-4000-8000-00000000000b",
+      "name": "結果を返す",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 0]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "入力を検証する", "type": "main", "index": 0 }]] },
+    "入力を検証する": { "main": [[{ "node": "インターフェースを作る(既存なら失敗してよい)", "type": "main", "index": 0 }]] },
+    "インターフェースを作る(既存なら失敗してよい)": { "main": [[{ "node": "インターフェースを取得", "type": "main", "index": 0 }]] },
+    "インターフェースを取得": { "main": [[{ "node": "インターフェースIDを確定", "type": "main", "index": 0 }]] },
+    "インターフェースIDを確定": { "main": [[{ "node": "IPを登録(既存なら失敗してよい)", "type": "main", "index": 0 }]] },
+    "IPを登録(既存なら失敗してよい)": { "main": [[{ "node": "IPを取得", "type": "main", "index": 0 }]] },
+    "IPを取得": { "main": [[{ "node": "重複割当を確認", "type": "main", "index": 0 }]] },
+    "重複割当を確認": { "main": [[{ "node": "インターフェースへ割り当て", "type": "main", "index": 0 }]] },
+    "インターフェースへ割り当て": { "main": [[{ "node": "primary_ip4 に設定", "type": "main", "index": 0 }]] },
+    "primary_ip4 に設定": { "main": [[{ "node": "結果を返す", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

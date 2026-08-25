@@ -146,6 +146,8 @@ services:
       REDIS_CACHE_PORT: "6379"
       REDIS_CACHE_DATABASE: "1"
       SECRET_KEY: ${NETBOX_SECRET_KEY:?}
+      # 検証環境はメモリが限られるため gunicorn を1ワーカーに絞る
+      WEB_CONCURRENCY: "1"
       # 新方式(v2)の API トークンにはペッパーが必須
       API_TOKEN_PEPPER_1: ${NETBOX_TOKEN_PEPPER:?}
       ALLOWED_HOSTS: "*"
@@ -160,8 +162,12 @@ services:
       netbox-redis:
         condition: service_healthy
 
+  # 背景ジョブ(レポート・スクリプト実行)用。デバイス・IP の CRUD には不要なため
+  # 既定では起動しない。必要なときだけ:
+  #   docker compose --profile netbox-jobs up -d
   netbox-worker:
     image: netboxcommunity/netbox:latest
+    profiles: ["netbox-jobs"]
     restart: unless-stopped
     command: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py rqworker
     environment:

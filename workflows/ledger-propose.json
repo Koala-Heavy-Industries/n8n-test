@@ -1,0 +1,168 @@
+{
+  "id": "ledgerpropose001",
+  "name": "ledger-propose",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "d2000000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [-680, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 台帳の desired(members/ など)を変更する PR を作る。\n// 入力: { path, content(文字列), title, body, branch }\n// 出力: { ok, pr_url, branch }\n//\n// desired は人がレビューして承認するもの。bot は直接書かず、必ず PR にする\n// (state/ への直接コミットは ledger-write の役割で、こちらとは別)。\n// 申請フォームのほか、契約満了時の自動削除提案などからも使う。\n// 設計: docs/design/01-member-lifecycle.md#承認--pr-レビュー\n\nconst i = $input.first()?.json ?? {};\nfor (const k of ['path', 'content', 'title', 'branch']) {\n  if (!i[k]) throw new Error(`ledger-propose: ${k} は必須です`);\n}\nif (!/^[A-Za-z0-9][A-Za-z0-9._\\/-]*$/.test(String(i.branch))) {\n  throw new Error(`ledger-propose: branch に使えない文字が含まれます: ${i.branch}`);\n}\n\nconst repo = $env.LEDGER_REPO;\nif (!repo) throw new Error('ledger-propose: LEDGER_REPO が未設定です');\n\nreturn [{ json: {\n  repo,\n  api: `https://api.github.com/repos/${repo}`,\n  path: i.path,\n  content: String(i.content),\n  title: i.title,\n  body: i.body ?? '',\n  branch: i.branch,\n}}];"
+      },
+      "id": "d2000000-0000-4000-8000-000000000002",
+      "name": "入力を検証する",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-460, 0]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.api }}/git/ref/heads/main",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "d2000000-0000-4000-8000-000000000003",
+      "name": "main の先端を取得",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-240, 0],
+      "credentials": { "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('入力を検証する').first().json.api }}/git/refs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ref: `refs/heads/${$('入力を検証する').first().json.branch}`, sha: $json.object.sha }) }}",
+        "options": {}
+      },
+      "id": "d2000000-0000-4000-8000-000000000004",
+      "name": "ブランチを作る(既存なら失敗してよい)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-20, 0],
+      "onError": "continueRegularOutput",
+      "credentials": { "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" } }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('入力を検証する').first().json.api }}/contents/{{ $('入力を検証する').first().json.path }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "ref", "value": "={{ $('入力を検証する').first().json.branch }}" }]
+        },
+        "options": {}
+      },
+      "id": "d2000000-0000-4000-8000-000000000005",
+      "name": "既存ファイルを確認",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [200, 0],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": { "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 新規作成でも更新でも同じ経路で扱えるよう、あれば sha を添える。\nconst ctx = $('入力を検証する').first().json;\nconst res = $input.first()?.json ?? {};\nreturn [{ json: {\n  ...ctx,\n  body64: Buffer.from(ctx.content, 'utf8').toString('base64'),\n  sha: res.sha ?? null,\n}}];"
+      },
+      "id": "d2000000-0000-4000-8000-000000000006",
+      "name": "コミット内容を作る",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 0]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $json.api }}/contents/{{ $json.path }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ message: $json.title, content: $json.body64, branch: $json.branch }, $json.sha ? { sha: $json.sha } : {})) }}",
+        "options": {}
+      },
+      "id": "d2000000-0000-4000-8000-000000000007",
+      "name": "ブランチにコミット",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 0],
+      "credentials": { "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('コミット内容を作る').first().json.api }}/pulls",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $('コミット内容を作る').first().json.title, head: $('コミット内容を作る').first().json.branch, base: 'main', body: $('コミット内容を作る').first().json.body }) }}",
+        "options": {}
+      },
+      "id": "d2000000-0000-4000-8000-000000000008",
+      "name": "PR を作る(既存なら失敗してよい)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [860, 0],
+      "onError": "continueRegularOutput",
+      "credentials": { "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" } }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('コミット内容を作る').first().json.api }}/pulls",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "head", "value": "={{ $('入力を検証する').first().json.repo.split('/')[0] }}:{{ $('コミット内容を作る').first().json.branch }}" },
+            { "name": "state", "value": "open" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d2000000-0000-4000-8000-000000000009",
+      "name": "PR を取得",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 0],
+      "alwaysOutputData": true,
+      "credentials": { "httpHeaderAuth": { "id": "github-ledger", "name": "GitHub (khi-ledger)" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 新規作成でも既存でも、同じブランチの PR を返す(冪等)。\nconst ctx = $('コミット内容を作る').first().json;\nconst pr = $input.first()?.json;\nconst url = pr?.html_url ?? null;\nif (!url) {\n  throw new Error(`ledger-propose: PR を作成できませんでした(ブランチ ${ctx.branch})`);\n}\nreturn [{ json: { ok: true, pr_url: url, branch: ctx.branch, path: ctx.path } }];"
+      },
+      "id": "d2000000-0000-4000-8000-00000000000a",
+      "name": "結果を返す",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 0]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": { "main": [[{ "node": "入力を検証する", "type": "main", "index": 0 }]] },
+    "入力を検証する": { "main": [[{ "node": "main の先端を取得", "type": "main", "index": 0 }]] },
+    "main の先端を取得": { "main": [[{ "node": "ブランチを作る(既存なら失敗してよい)", "type": "main", "index": 0 }]] },
+    "ブランチを作る(既存なら失敗してよい)": { "main": [[{ "node": "既存ファイルを確認", "type": "main", "index": 0 }]] },
+    "既存ファイルを確認": { "main": [[{ "node": "コミット内容を作る", "type": "main", "index": 0 }]] },
+    "コミット内容を作る": { "main": [[{ "node": "ブランチにコミット", "type": "main", "index": 0 }]] },
+    "ブランチにコミット": { "main": [[{ "node": "PR を作る(既存なら失敗してよい)", "type": "main", "index": 0 }]] },
+    "PR を作る(既存なら失敗してよい)": { "main": [[{ "node": "PR を取得", "type": "main", "index": 0 }]] },
+    "PR を取得": { "main": [[{ "node": "結果を返す", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "executionTimeout": 300 }
+}

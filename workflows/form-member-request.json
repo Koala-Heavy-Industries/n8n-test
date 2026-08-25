@@ -1,0 +1,136 @@
+{
+  "id": "formmember00001",
+  "name": "form-member-request",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "member-request",
+        "formTitle": "メンバー申請",
+        "formDescription": "追加・役割変更・削除の申請です。送信すると台帳への Pull Request が作成されます。マージされると実際に反映されます。",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "申請の種類",
+              "fieldType": "dropdown",
+              "fieldOptions": { "values": [
+                { "option": "追加(新しく迎える)" },
+                { "option": "役割変更・チーム異動" },
+                { "option": "削除(抜ける)" }
+              ]},
+              "requiredField": true
+            },
+            { "fieldLabel": "メールアドレス", "fieldType": "email", "requiredField": true,
+              "placeholder": "taro@example.com" },
+            { "fieldLabel": "氏名", "fieldType": "text", "placeholder": "山田 太郎(追加のときのみ必要)" },
+            {
+              "fieldLabel": "所属区分",
+              "fieldType": "dropdown",
+              "fieldOptions": { "values": [{ "option": "従業員" }, { "option": "協力会社" }] }
+            },
+            { "fieldLabel": "協力会社名", "fieldType": "text", "placeholder": "協力会社の場合のみ" },
+            {
+              "fieldLabel": "役割",
+              "fieldType": "dropdown",
+              "fieldOptions": { "values": [
+                { "option": "developer" }, { "option": "reviewer" },
+                { "option": "pm" }, { "option": "admin" }
+              ]}
+            },
+            { "fieldLabel": "所属チーム", "fieldType": "text",
+              "placeholder": "alpha(兼務は alpha, beta のようにカンマ区切り)" },
+            { "fieldLabel": "GitHub ユーザー名", "fieldType": "text", "placeholder": "追加のときのみ" },
+            { "fieldLabel": "受入責任者のメールアドレス", "fieldType": "email",
+              "placeholder": "協力会社の場合のみ" },
+            { "fieldLabel": "契約終了日", "fieldType": "date", "placeholder": "協力会社の場合のみ" },
+            { "fieldLabel": "適用日・最終日", "fieldType": "date",
+              "placeholder": "未来の日付を指定する場合(省略可)" },
+            { "fieldLabel": "理由・備考", "fieldType": "textarea" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e2000000-0000-4000-8000-000000000001",
+      "name": "メンバー申請フォーム",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [-680, 0],
+      "webhookId": "f6b2d9a4-1c73-4e58-8a90-3d5f2b7c4e18"
+    },
+    {
+      "parameters": {
+        "jsCode": "// フォームの入力から members/<id>.yaml の内容を組み立て、PR の材料にする。\n// フォームは PR を作るための補助 UI にすぎず、以降の経路は直接 PR と同一。\n// 検証の正は台帳リポジトリの CI(直接 PR にも効かせるため)。\n// 設計: docs/design/01-member-lifecycle.md#申請の入口2つ\n\nconst YAML = require('yaml');\nconst f = $input.first()?.json ?? {};\nconst get = (k) => (f[k] ?? '').toString().trim();\n\nconst kindLabel = get('申請の種類');\nconst op = kindLabel.startsWith('追加') ? 'add'\n  : kindLabel.startsWith('役割変更') ? 'change'\n  : kindLabel.startsWith('削除') ? 'remove' : null;\nif (!op) throw new Error(`申請の種類が不正です: ${kindLabel}`);\n\nconst email = get('メールアドレス');\nif (!/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(email)) throw new Error(`メールアドレスの形式が不正です: ${email}`);\n\n// id はメールアドレスのローカル部を正規化したもの(台帳の規則)\nconst id = email.split('@')[0].toLowerCase().replace(/\\+.*$/, '').replace(/[^a-z0-9._-]/g, '-');\n\nconst teams = get('所属チーム').split(',').map((s) => s.trim()).filter(Boolean);\nconst affiliation = get('所属区分') === '協力会社'\n  ? `partner:${get('協力会社名') || '(会社名未記入)'}`\n  : 'employee';\n\nlet doc;\nif (op === 'remove') {\n  // 既存ファイルを読んで status だけ変えるのが本来だが、フォームからは\n  // 最小限の宣言を作り、CI と差分プレビューでレビューしてもらう。\n  doc = { __partial: true, status: 'left', left_at: get('適用日・最終日') || new Date().toISOString().slice(0, 10) };\n} else {\n  doc = {\n    name: get('氏名') || id,\n    email,\n    affiliation,\n    role: get('役割'),\n    teams,\n    status: 'active',\n  };\n  const github = get('GitHub ユーザー名');\n  if (github) doc.accounts = { github };\n  if (affiliation.startsWith('partner:')) {\n    doc.sponsor = get('受入責任者のメールアドレス');\n    doc.contract_until = get('契約終了日');\n  }\n  if (op === 'change' && get('適用日・最終日')) doc.effective_from = get('適用日・最終日');\n}\n\nconst OPNAME = { add: '追加', change: '役割変更・チーム異動', remove: '削除' };\nconst stamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);\n\nreturn [{ json: {\n  op,\n  id,\n  path: `members/${id}.yaml`,\n  partial: doc.__partial === true,\n  doc,\n  branch: `member/${op}-${id}-${stamp}`,\n  title: `${OPNAME[op]}: ${doc.name ?? id}`,\n  reason: get('理由・備考'),\n  applicantEmail: email,\n}}];"
+      },
+      "id": "e2000000-0000-4000-8000-000000000002",
+      "name": "申請内容を組み立てる",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-460, 0]
+    },
+    {
+      "parameters": { "jsCode": "// 変更・削除では既存の内容に上書きするため、現在のファイルを読む。\nreturn [{ json: { kind: 'members', id: $json.id } }];" },
+      "id": "e2000000-0000-4000-8000-000000000003",
+      "name": "現在の宣言を読む入力",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-240, 0]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "ledgerread00001", "mode": "id" },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "e2000000-0000-4000-8000-000000000004",
+      "name": "台帳を読む",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [-20, 0],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// 追加は新規作成、変更・削除は既存に上書き。\n// 既存が無いのに変更・削除しようとしたら、その時点で止める。\nconst YAML = require('yaml');\nconst ctx = $('申請内容を組み立てる').first().json;\nconst rec = $input.first()?.json;\nconst current = rec?.desired ?? null;\n\nif (ctx.op === 'add' && current) {\n  throw new Error(`${ctx.id} は既に台帳に存在します。役割変更として申請してください`);\n}\nif (ctx.op !== 'add' && !current) {\n  throw new Error(`${ctx.id} が台帳に見つかりません。メールアドレスを確認してください`);\n}\n\nconst next = ctx.partial ? { ...current, ...ctx.doc } : ctx.doc;\ndelete next.__partial;\n\nconst lines = [\n  `**${ctx.title}**`, '',\n  `申請者: ${ctx.applicantEmail}`,\n  ctx.reason ? `理由: ${ctx.reason}` : '',\n  '',\n  'このPRはメンバー申請フォームから自動生成されました。',\n  'CI が権限への影響をコメントします。内容を確認してマージしてください。',\n].filter(Boolean);\n\nreturn [{ json: {\n  path: ctx.path,\n  content: YAML.stringify(next),\n  title: ctx.title,\n  body: lines.join('\\n'),\n  branch: ctx.branch,\n}}];"
+      },
+      "id": "e2000000-0000-4000-8000-000000000005",
+      "name": "YAML を作る",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 0]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "ledgerpropose001", "mode": "id" },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "e2000000-0000-4000-8000-000000000006",
+      "name": "PR を作る",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [420, 0]
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "申請を受け付けました",
+        "completionMessage": "={{ '台帳への Pull Request を作成しました。\\n\\n' + $json.pr_url + '\\n\\nレビューしてマージすると、自動で反映されます。' }}",
+        "options": {}
+      },
+      "id": "e2000000-0000-4000-8000-000000000007",
+      "name": "完了画面",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [640, 0]
+    }
+  ],
+  "connections": {
+    "メンバー申請フォーム": { "main": [[{ "node": "申請内容を組み立てる", "type": "main", "index": 0 }]] },
+    "申請内容を組み立てる": { "main": [[{ "node": "現在の宣言を読む入力", "type": "main", "index": 0 }]] },
+    "現在の宣言を読む入力": { "main": [[{ "node": "台帳を読む", "type": "main", "index": 0 }]] },
+    "台帳を読む": { "main": [[{ "node": "YAML を作る", "type": "main", "index": 0 }]] },
+    "YAML を作る": { "main": [[{ "node": "PR を作る", "type": "main", "index": 0 }]] },
+    "PR を作る": { "main": [[{ "node": "完了画面", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "executionTimeout": 300 }
+}

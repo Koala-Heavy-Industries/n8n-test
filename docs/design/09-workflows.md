@@ -33,6 +33,9 @@ ID は固定値(変えると再インポートで重複する)。
 | **consistency-audit** | `consistaudit0001` | サブ / `POST /webhook/consistency-audit` | ledger-read / notify |
 | **cron-daily** | `crondaily0000001` | 定期(毎日9時) | reconcile → remind-scheduler → consistency-audit(高リスク) |
 | **cron-weekly** | `cronweekly000001` | 定期(毎週月曜9時) | weekly-audit → consistency-audit(全項目) |
+| **form-member-request** | `formmember00001` | Form(`/form/f6b2d9a4-…`) | ledger-read / ledger-propose |
+| **form-pc-register** | `formpcregist0001` | Form(`/form/a9d4f7b2-…`) | pc-register |
+| **ledger-propose** | `ledgerpropose001` | サブ | — (台帳への PR 作成) |
 | **probe-yaml** | `probeyaml000001` | サブ | — (Code ノードで YAML が使えることの確認用) |
 
 ### 未実装
@@ -42,7 +45,7 @@ ID は固定値(変えると再インポートで重複する)。
 | `service-github` | GitHub Team の反映。**Organization が必要**で検証環境では動かせない。reconcile は「未実装コネクタ」として可視化する |
 | `server-register` / `vm-register` / `hypervisor-sync` | サーバ・VM 登録(→ [07](07-servers.md))。ハイパーバイザー製品が未確定 |
 | `recertification` / `heartbeat` / `workflow-export-audit` | 安全装置(→ [08](08-safeguards.md)) |
-| メンバー申請フォーム | 現状は台帳に直接 PR を出す運用。フォームは PR を作る補助 UI として後付けできる |
+
 
 ## 呼び出し関係
 
@@ -170,6 +173,17 @@ flowchart TD
   旧ファイルを ledger-delete で消す。
 - **タスクは閉じない**。完了判定は remind-scheduler の事後検証に任せ、
   NetBox 直接編集と扱いを揃える。
+
+### 申請フォーム
+
+`form-member-request` と `form-pc-register` は**入力を既存フローの形に変換するだけ**の
+薄い層。検証・重複チェック・登録は呼び先(`pc-register` / `ledger-propose`)が行う。
+Webhook から直接呼ぶ経路と処理を共通にするため。
+
+- **メンバー申請**: 入力から `members/<id>.yaml` を組み立て、`ledger-propose` が
+  ブランチ+コミット+PR を作る。**bot は desired を直接書かない**(必ず PR)。
+  追加なのに既存、変更・削除なのに不在、といった不整合はこの時点で止める。
+- **PC 登録**: 日本語ラベルを `pc-register` の入力形式に写すだけ。
 
 ### 監査
 

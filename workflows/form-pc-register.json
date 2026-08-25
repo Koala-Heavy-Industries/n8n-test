@@ -1,0 +1,109 @@
+{
+  "id": "formpcregist0001",
+  "name": "form-pc-register",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "pc-register-form",
+        "formTitle": "PC 登録",
+        "formDescription": "新規購入・他部署からの搬入のどちらもこのフォームで登録します。送信すると NetBox に登録され、必要なタスクが担当者に依頼されます。",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "登録区分",
+              "fieldType": "dropdown",
+              "fieldOptions": { "values": [
+                { "option": "新規購入" }, { "option": "他部署からの搬入" }
+              ]},
+              "requiredField": true
+            },
+            { "fieldLabel": "利用者名", "fieldType": "text", "requiredField": true, "placeholder": "山田 太郎" },
+            { "fieldLabel": "利用者のメールアドレス", "fieldType": "email", "requiredField": true },
+            { "fieldLabel": "機種・モデル", "fieldType": "text", "requiredField": true,
+              "placeholder": "MacBook Pro 14 M4" },
+            { "fieldLabel": "取得日", "fieldType": "date", "requiredField": true },
+            {
+              "fieldLabel": "用途",
+              "fieldType": "dropdown",
+              "fieldOptions": { "values": [
+                { "option": "開発" }, { "option": "検証" }, { "option": "その他" }
+              ]},
+              "requiredField": true
+            },
+            { "fieldLabel": "資産管理番号", "fieldType": "text", "requiredField": true,
+              "placeholder": "情シス採番済みなら正式値。未定なら仮の番号を入力" },
+            { "fieldLabel": "資産管理番号は仮の値", "fieldType": "dropdown",
+              "fieldOptions": { "values": [{ "option": "いいえ(正式な番号)" }, { "option": "はい(仮の番号)" }] } },
+            { "fieldLabel": "コンピュータ名", "fieldType": "text", "requiredField": true,
+              "placeholder": "情シス採番済みなら正式値。未定なら仮の名前を入力" },
+            { "fieldLabel": "コンピュータ名は仮の値", "fieldType": "dropdown",
+              "fieldOptions": { "values": [{ "option": "いいえ(正式な名前)" }, { "option": "はい(仮の名前)" }] } },
+            { "fieldLabel": "IP アドレス", "fieldType": "text",
+              "placeholder": "任意。キッティング前なら空欄でかまいません(後で登録を促します)" },
+            { "fieldLabel": "導入済みの必須ソフト", "fieldType": "text",
+              "placeholder": "搬入 PC などで既に入っているもの。例: jetbrains, office" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f2000000-0000-4000-8000-000000000001",
+      "name": "PC 登録フォーム",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [-460, 0],
+      "webhookId": "a9d4f7b2-5e81-4c36-9f20-6b3a1d8e5c74"
+    },
+    {
+      "parameters": {
+        "jsCode": "// フォームの日本語ラベルを pc-register の入力形式に変換するだけ。\n// 検証・重複チェック・NetBox 登録・タスク起票は pc-register 側が行う\n// (Webhook から直接呼ぶ経路と処理を共通にするため)。\n// 設計: docs/design/02-pc-register.md\n\nconst f = $input.first()?.json ?? {};\nconst get = (k) => (f[k] ?? '').toString().trim();\nconst PURPOSE = { '開発': 'dev', '検証': 'test', 'その他': 'misc' };\n\nreturn [{ json: {\n  acquisition: get('登録区分') === '他部署からの搬入' ? 'transfer' : 'purchase',\n  user_name: get('利用者名'),\n  user_email: get('利用者のメールアドレス'),\n  model: get('機種・モデル'),\n  acquired_at: get('取得日'),\n  purpose: PURPOSE[get('用途')] ?? 'dev',\n  asset_no: get('資産管理番号'),\n  asset_no_provisional: get('資産管理番号は仮の値').startsWith('はい'),\n  computer_name: get('コンピュータ名'),\n  computer_name_provisional: get('コンピュータ名は仮の値').startsWith('はい'),\n  ip: get('IP アドレス') || null,\n  installed: get('導入済みの必須ソフト').split(',').map((s) => s.trim()).filter(Boolean),\n}}];"
+      },
+      "id": "f2000000-0000-4000-8000-000000000002",
+      "name": "入力を変換する",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-240, 0]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "pcregister000001", "mode": "id" },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "f2000000-0000-4000-8000-000000000003",
+      "name": "登録する",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [-20, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 完了画面に出す文面を作る。何が起きたかと、次に誰が何をするかを書く。\nconst r = $input.first()?.json ?? {};\nconst lines = [\n  `NetBox に登録しました(資産管理番号 ${r.asset_no} / ${r.computer_name})。`,\n];\nif (r.ip) lines.push(`IP アドレス ${r.ip} を割り当てました。`);\nif ((r.tasks ?? []).length) {\n  lines.push('', '担当者に次の依頼を送りました:');\n  for (const t of r.tasks) lines.push(`・${t}`);\n  lines.push('', '完了までリマインドが届きます。');\n} else {\n  lines.push('', '追加の作業はありません。');\n}\nlines.push('', `NetBox: ${r.netbox_url}`);\nreturn [{ json: { message: lines.join('\\n') } }];"
+      },
+      "id": "f2000000-0000-4000-8000-000000000004",
+      "name": "完了メッセージを作る",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 0]
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "登録しました",
+        "completionMessage": "={{ $json.message }}",
+        "options": {}
+      },
+      "id": "f2000000-0000-4000-8000-000000000005",
+      "name": "完了画面",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [420, 0]
+    }
+  ],
+  "connections": {
+    "PC 登録フォーム": { "main": [[{ "node": "入力を変換する", "type": "main", "index": 0 }]] },
+    "入力を変換する": { "main": [[{ "node": "登録する", "type": "main", "index": 0 }]] },
+    "登録する": { "main": [[{ "node": "完了メッセージを作る", "type": "main", "index": 0 }]] },
+    "完了メッセージを作る": { "main": [[{ "node": "完了画面", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "executionTimeout": 300 }
+}

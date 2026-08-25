@@ -3,8 +3,7 @@
 # 設計: docs/design/05-environment.md
 # 起動:  cp .env.example .env && docker compose up -d
 #
-# NetBox(PC・サーバ登録用)はロードマップ第6段階で追加する。
-# それまでは Keycloak を対象にしたメンバーライフサイクルの検証に集中する。
+# NetBox は起動に1〜2分かかる(初回はマイグレーション)。
 
 name: khi-itops
 
@@ -51,6 +50,7 @@ services:
       REMIND_INTERVAL_DAYS: ${REMIND_INTERVAL_DAYS:-3}
       REMIND_MAX: ${REMIND_MAX:-3}
       REVOKE_CIRCUIT_BREAKER: ${REVOKE_CIRCUIT_BREAKER:-5}
+      NETBOX_URL: ${NETBOX_URL:-http://netbox:8080}
     volumes:
       - n8n_data:/home/node/.n8n
       # ワークフロー定義は Git 管理し、CLI でインポートする
@@ -128,7 +128,89 @@ services:
       MP_MAX_MESSAGES: "2000"
       TZ: ${TZ:-Asia/Tokyo}
 
+  # ---------- NetBox(実機情報の Source of Truth) ----------
+  netbox:
+    image: netboxcommunity/netbox:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8080"
+    environment:
+      DB_HOST: netbox-postgres
+      DB_NAME: netbox
+      DB_USER: netbox
+      DB_PASSWORD: ${NETBOX_DB_PASSWORD:?}
+      REDIS_HOST: netbox-redis
+      REDIS_PORT: "6379"
+      REDIS_DATABASE: "0"
+      REDIS_CACHE_HOST: netbox-redis
+      REDIS_CACHE_PORT: "6379"
+      REDIS_CACHE_DATABASE: "1"
+      SECRET_KEY: ${NETBOX_SECRET_KEY:?}
+      # 新方式(v2)の API トークンにはペッパーが必須
+      API_TOKEN_PEPPER_1: ${NETBOX_TOKEN_PEPPER:?}
+      ALLOWED_HOSTS: "*"
+      SKIP_SUPERUSER: "false"
+      SUPERUSER_NAME: ${NETBOX_ADMIN:-admin}
+      SUPERUSER_EMAIL: netbox-admin@example.com
+      SUPERUSER_PASSWORD: ${NETBOX_ADMIN_PASSWORD:?}
+      TZ: ${TZ:-Asia/Tokyo}
+    depends_on:
+      netbox-postgres:
+        condition: service_healthy
+      netbox-redis:
+        condition: service_healthy
+
+  netbox-worker:
+    image: netboxcommunity/netbox:latest
+    restart: unless-stopped
+    command: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py rqworker
+    environment:
+      API_TOKEN_PEPPER_1: ${NETBOX_TOKEN_PEPPER:?}
+      DB_HOST: netbox-postgres
+      DB_NAME: netbox
+      DB_USER: netbox
+      DB_PASSWORD: ${NETBOX_DB_PASSWORD:?}
+      REDIS_HOST: netbox-redis
+      REDIS_PORT: "6379"
+      REDIS_DATABASE: "0"
+      REDIS_CACHE_HOST: netbox-redis
+      REDIS_CACHE_PORT: "6379"
+      REDIS_CACHE_DATABASE: "1"
+      SECRET_KEY: ${NETBOX_SECRET_KEY:?}
+      TZ: ${TZ:-Asia/Tokyo}
+    depends_on:
+      netbox:
+        condition: service_started
+
+  netbox-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: netbox
+      POSTGRES_USER: netbox
+      POSTGRES_PASSWORD: ${NETBOX_DB_PASSWORD:?}
+    volumes:
+      - netbox_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netbox -d netbox"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  netbox-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - netbox_redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   n8n_data:
   n8n_db:
   keycloak_db:
+  netbox_db:
+  netbox_redis:

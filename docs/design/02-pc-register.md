@@ -108,7 +108,8 @@ Source of Truth とする。** state には NetBox の device ID を持たせ、
 
 - 資産管理番号は NetBox 標準の `asset_tag` フィールドに載せる
   (一意制約が使え、検索・突合が楽)。
-- 認証は API Token(ヘッダ `Authorization: Token ...`)。
+- 認証は API トークン(ヘッダ `Authorization: Bearer nbt_<key>.<plaintext>`。
+  → [05 の制約](05-environment.md#構築時に判明した制約検証済み))。
 - `device_type` / `role` / `site` / タグ `provisional` は NetBox 側のマスタ登録が
   前提([05. 実行環境設計](05-environment.md) の初期セットアップに含める)。
   未知の機種は既定の device_type(例: `generic-laptop`)で登録し、

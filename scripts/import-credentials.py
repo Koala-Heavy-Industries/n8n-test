@@ -9,6 +9,7 @@ n8n は N8N_ENCRYPTION_KEY で暗号化して保存する。
 .env に必要な値:
   GITHUB_TOKEN            khi-ledger 用の fine-grained PAT(Contents: Read and write)
   KEYCLOAK_CLIENT_SECRET  setup-keycloak.py が出力する値
+  NETBOX_TOKEN            setup-netbox.py が生成して .env に書き戻す値
 
 設計: docs/design/05-environment.md(認証情報の方針)
 """
@@ -68,6 +69,18 @@ def main():
         })
     else:
         skipped.append("KEYCLOAK_CLIENT_SECRET(Keycloak 操作)")
+
+    netbox = env.get("NETBOX_TOKEN", "")
+    if netbox:
+        creds.append({
+            "id": "netbox",
+            "name": "NetBox",
+            "type": "httpHeaderAuth",
+            # v2 トークンは Bearer nbt_<key>.<plaintext> 形式
+            "data": {"name": "Authorization", "value": f"Bearer {netbox}"},
+        })
+    else:
+        skipped.append("NETBOX_TOKEN(機器情報の読み書き)")
 
     # 通知の検証用。Mailpit は認証なしで受ける
     creds.append({

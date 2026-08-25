@@ -34,6 +34,7 @@
 cp .env.example .env       # 秘密値を埋める(openssl rand -hex 32 など)
 docker compose up -d
 ./scripts/setup-keycloak.py    # realm・グループ・n8n用サービスアカウント(冪等)
+./scripts/setup-netbox.py      # APIトークン・サイト・ロール・カスタムフィールド(冪等)
 ```
 
 | サービス | URL | 用途 |
@@ -41,6 +42,7 @@ docker compose up -d
 | n8n | http://localhost:5678 | ワークフロー |
 | Keycloak | http://localhost:8080 | プロジェクト IdP(realm: `khi-dev`) |
 | Mailpit | http://localhost:8025 | 送信メールの受信箱(チャネル未決のまま検証する) |
+| NetBox | http://localhost:8000 | 実機情報(コンピュータ名・資産管理番号・IP)の Source of Truth |
 
 `setup-keycloak.py` が出力する Client Secret と、khi-ledger 用の
 fine-grained PAT(Contents: Read and write のみ)を `.env` に入れてから:
@@ -49,8 +51,6 @@ fine-grained PAT(Contents: Read and write のみ)を `.env` に入れてから:
 ./scripts/import-credentials.py   # .env から n8n の Credential を作成(冪等)
 ./scripts/deploy-workflows.py     # workflows/*.json をインポート・有効化・再起動
 ```
-
-NetBox はロードマップ第6段階(PC・サーバ登録)で追加する。
 
 ## ワークフローの開発
 

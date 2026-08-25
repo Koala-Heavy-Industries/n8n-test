@@ -82,6 +82,7 @@ NetBox の背景ジョブ用ワーカーは既定で起動しない(`--profile n
 | **Wait を含むフローは CLI 実行では検証できない** | `n8n execute` は一発限りのプロセスなので、実行が待機に入ると再開できない。稼働中インスタンスで動かす必要があるため、Webhook トリガーの一時ワークフローから呼び出して検証する(承認リンクのクリックまで通しで確認できる) |
 | **多段のサブワークフロー呼び出しは CLI 実行で不安定** | `n8n execute` から Execute Workflow を多段に辿るワークフロー(remind-scheduler → ledger-read/notify/ledger-write)は、ノードが1つも実行されないまま crashed になることがある。稼働中インスタンスで動かせば正常に動作するため、Webhook トリガーの一時ワークフローから呼び出して検証する |
 | **スケジュールトリガーはサブワークフローに同居させない** | Schedule トリガーと Execute Workflow トリガーを同じワークフローに置くと CLI 実行が起動しない。定期実行は `cron-daily` に分離し、各処理は純粋なサブワークフローに保つ(テスト容易性のためにも有効) |
+| **コンテナ間の NetBox は 8080** | ホストへは 8000 で公開するが、コンテナ内は 8080 で待ち受ける。`NETBOX_URL` をコンテナ間通信用に `http://netbox:8080` にしないと接続できない(ホスト公開ポートと混同しやすい) |
 | **Webhook トリガーのフローは Execute Workflow の宛先を式にできない** | 宛先を `={{ $json.xxx }}` のような式にすると**ワークフローを有効化できず**、Webhook も登録されない(エラーは出ない。`active` が false のままになる)。汎用の実行ランナーは作れないため、入口フローごとに Webhook トリガーを持たせる。リコンサイラのように Execute Workflow トリガーのみのフローでは式による動的な宛先を使える |
 | **resume URL は署名付きで、既にクエリを含む** | `$execution.resumeUrl` は `?signature=<HMAC>` を含む。承認/却下のパラメータは `&` で連結する(→ [04](04-notification-abstraction.md#チャネル非依存の承認完了報告方式)) |
 | **NetBox の API トークンは v2 形式** | イメージの `SUPERUSER_API_TOKEN` は効かず、トークン作成には `API_TOKEN_PEPPER_1` の設定が必須。トークン値はサーバが生成し、**作成時にしか平文を取得できない**ため `scripts/setup-netbox.py` が生成して `.env` に書き戻す。認証ヘッダは `Authorization: Bearer nbt_<key>.<plaintext>`(v1 の `Token <値>` ではない) |

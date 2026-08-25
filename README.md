@@ -24,7 +24,7 @@
 | 3. 土台サブWF | ✅ 完了 — `ledger-read` / `ledger-write` / `notify` / `request-approval` すべて実機で動作確認 |
 | 4. リコンサイラ + service-keycloak | ✅ 完了 — 台帳の変更が Keycloak に反映されるところまで実機で確認 |
 | 5. remind-scheduler・タスク起票・完了リンク | ✅ 完了 — 起票→リマインド→完了→収束、エスカレーションまで確認 |
-| 6. PC 登録(NetBox) | 🟡 環境・`pc-register` / `netbox-assign-ip` 実装済み。**動作未検証**(Docker のメモリ不足で NetBox と n8n を同時に動かせず中断) |
+| 6. PC 登録(NetBox) | 🟡 `pc-register` / `netbox-assign-ip` 完成(実機で動作確認)。`device-update`(仮情報の正式化)は未実装 |
 | 7〜11(サーバ/VM、service-github、監査、安全装置ほか) | ⬜ 未着手 |
 
 → [実装ロードマップ](docs/design/05-environment.md#実装フェーズのロードマップ)

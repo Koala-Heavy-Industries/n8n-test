@@ -3,6 +3,23 @@
   "name": "remind-scheduler",
   "nodes": [
     {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "remind-run",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "21000000-0000-4000-8000-000000000013",
+      "name": "手動実行の受け口(POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        -160
+      ],
+      "webhookId": "c5e9a7b3-8f14-4d26-9c50-2b7d1e3f8a49"
+    },
+    {
       "parameters": {},
       "id": "21000000-0000-4000-8000-000000000002",
       "name": "手動・他フローから",
@@ -47,7 +64,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 未完了タスクを走査し、リマインド・エスカレーションの対象を選ぶ。\n// あわせて協力会社メンバーの契約期限も監視する。\n//\n// blocking: false のタスク(例: PC の IP 登録)はリマインドするが\n// エスカレーションはしない(「入力は強制しないが漏れは追いかける」)。\n// 設計: docs/design/04-notification-abstraction.md#リマインドループ共通型\n\nconst members = $input.all().map((i) => i.json).filter((m) => m.desired);\n\nconst intervalDays = Number($env.REMIND_INTERVAL_DAYS ?? 3);\nconst maxRemind = Number($env.REMIND_MAX ?? 3);\nconst adminTo = String($env.ADMIN_EMAILS ?? '').split(',').map((s) => s.trim()).filter(Boolean);\n\nconst now = new Date();\nconst days = (a, b) => Math.floor((a - b) / 86400000);\n\nconst notices = [];   // notify に渡すもの\nconst patches = [];   // state に書き戻すもの\n\nfor (const m of members) {\n  const d = m.desired;\n  const tasks = Array.isArray(m.state?.tasks) ? m.state.tasks : [];\n  let changed = false;\n\n  const nextTasks = tasks.map((t) => {\n    if (t.status !== 'open') return t;\n\n    const overdue = t.due ? days(now, new Date(t.due)) > 0 : false;\n    const last = t.last_reminded_at ? new Date(t.last_reminded_at) : null;\n    const sinceLast = last ? days(now, last) : Infinity;\n    if (sinceLast < intervalDays) return t;   // まだ間隔を空ける\n\n    const count = Number(t.remind_count ?? 0);\n    const blocking = t.blocking !== false;\n\n    // 期限超過かつ上限到達、かつ blocking ならエスカレーション\n    if (overdue && count >= maxRemind && blocking) {\n      notices.push({\n        to: adminTo,\n        level: 'escalation',\n        subject: `未完了のまま期限を大きく超過: ${t.subject}`,\n        body: [\n          `対象メンバー: ${d.name ?? m.id} (${m.id})`,\n          `タスク: ${t.subject}`,\n          `担当: ${t.assignee}`,\n          `期限: ${t.due}(${days(now, new Date(t.due))} 日超過)`,\n          `リマインド: ${count} 回送信済み`,\n          '',\n          '担当者が対応できない状態の可能性があります。管理者の介入が必要です。',\n        ].join('\\n'),\n      });\n      changed = true;\n      return { ...t, status: 'escalated', escalated_at: now.toISOString() };\n    }\n\n    // 通常のリマインド(上限に達していても blocking でなければ送り続ける)\n    if (count < maxRemind || !blocking) {\n      notices.push({\n        to: [t.assignee],\n        level: overdue ? 'warn' : 'info',\n        subject: overdue ? `期限超過: ${t.subject}` : `未完了のお知らせ: ${t.subject}`,\n        body: [\n          `対象メンバー: ${d.name ?? m.id} (${m.id})`,\n          t.steps ? `手順: ${t.steps}` : '',\n          `期限: ${t.due}${overdue ? '(超過しています)' : ''}`,\n          '',\n          `完了したらこちらを開いてください: ${t.complete_url}`,\n          blocking ? '' : '※ このタスクは必須ではありませんが、記録のためご対応ください。',\n        ].filter(Boolean).join('\\n'),\n      });\n      changed = true;\n      return { ...t, remind_count: count + 1, last_reminded_at: now.toISOString() };\n    }\n\n    return t;\n  });\n\n  // 協力会社メンバーの契約期限。期限前に sponsor へ更新確認を促す。\n  // 期限を過ぎてもアクセスは自動遮断しない(fail-open を意図的に受容。08 参照)。\n  if (d.status === 'active' && d.contract_until && d.sponsor) {\n    const remaining = -days(now, new Date(d.contract_until));\n    if (remaining <= 30) {\n      notices.push({\n        to: [d.sponsor],\n        level: remaining < 0 ? 'escalation' : 'warn',\n        subject: remaining < 0\n          ? `契約期限を超過しています: ${d.name ?? m.id}`\n          : `契約期限が近づいています(残り ${remaining} 日): ${d.name ?? m.id}`,\n        body: [\n          `対象: ${d.name ?? m.id} (${d.email}) / ${d.affiliation}`,\n          `契約期限: ${d.contract_until}`,\n          '',\n          '継続する場合は台帳の contract_until を更新する PR を、',\n          '終了する場合は status: left にする PR を出してください。',\n          remaining < 0 ? '\\n※ 期限を過ぎてもアクセスは自動停止しません。対応が必要です。' : '',\n        ].filter(Boolean).join('\\n'),\n      });\n    }\n  }\n\n  if (changed) {\n    patches.push({ kind: 'members', id: m.id, patch: { tasks: nextTasks }, reason: 'リマインド状況を更新' });\n  }\n}\n\nif (notices.length === 0) {\n  return [{ json: { __nonotice: true, patches } }];\n}\nreturn notices.map((n) => ({ json: { ...n, __patches: patches } }));"
+        "jsCode": "// 未完了タスクを走査し、リマインド・エスカレーションの対象を選ぶ。\n// メンバー(state/members)と PC(state/pcs)の両方を見る。\n//\n// verify: api のタスクは、実サービス(NetBox)の状態を見て自動的に閉じる。\n// これにより「機器情報更新フォームを使っても NetBox を直接編集しても\n// 同じように完了になる」= 更新経路を強制しない、が成立する。\n// blocking: false のタスク(PC の IP 登録)はリマインドするがエスカレーションしない。\n// 設計: docs/design/02-pc-register.md / 04-notification-abstraction.md\n\nconst members = $('台帳を読む').all().map((i) => i.json).filter((m) => m.desired);\nconst pcs = $('PC台帳を読む').all().map((i) => i.json).filter((p) => p.state);\n\n// NetBox の実態(device id -> 実際の値)\nconst nb = {};\ntry {\n  const res = $input.first()?.json ?? {};\n  for (const dev of (res.results ?? [])) {\n    nb[dev.id] = {\n      name: dev.name,\n      assetTag: dev.asset_tag,\n      provisional: (dev.tags ?? []).some((t) => t.slug === 'provisional'),\n      ip: dev.primary_ip4?.address ?? null,\n    };\n  }\n} catch (e) { /* NetBox が落ちていても他の処理は続ける */ }\n\nconst intervalDays = Number($env.REMIND_INTERVAL_DAYS ?? 3);\nconst maxRemind = Number($env.REMIND_MAX ?? 3);\nconst adminTo = String($env.ADMIN_EMAILS ?? '').split(',').map((s) => s.trim()).filter(Boolean);\n\nconst now = new Date();\nconst days = (a, b) => Math.floor((a - b) / 86400000);\n\nconst notices = [];\nconst patches = [];\n\n// --- 事後検証: NetBox を見て verify: api のタスクを閉じられるか判定する ---\nconst verifyDone = (pc, task) => {\n  const dev = nb[pc.state?.netbox_device_id];\n  if (!dev) return null;                       // NetBox を見られない場合は判断しない\n  if (task.kind === 'pc-official-info') return dev.provisional === false;\n  if (task.kind === 'pc-ip') return Boolean(dev.ip);\n  return null;\n};\n\nconst processTasks = (rec, label, opts) => {\n  const tasks = Array.isArray(rec.state?.tasks) ? rec.state.tasks : [];\n  let changed = false;\n\n  const next = tasks.map((t) => {\n    if (t.status !== 'open') return t;\n\n    // 実サービス側で満たされていれば、人の報告を待たずに閉じる\n    if (t.verify === 'api') {\n      const done = opts.verify ? opts.verify(rec, t) : null;\n      if (done === true) {\n        changed = true;\n        return { ...t, status: 'done', completed_at: now.toISOString(), token: null,\n                 complete_url: null, closed_by: '事後検証' };\n      }\n    }\n\n    const overdue = t.due ? days(now, new Date(t.due)) > 0 : false;\n    const last = t.last_reminded_at ? new Date(t.last_reminded_at) : null;\n    if (last && days(now, last) < intervalDays) return t;\n\n    const count = Number(t.remind_count ?? 0);\n    const blocking = t.blocking !== false;\n\n    if (overdue && count >= maxRemind && blocking) {\n      notices.push({\n        to: adminTo, level: 'escalation',\n        subject: `未完了のまま期限を大きく超過: ${t.subject}`,\n        body: [\n          `対象: ${label}`,\n          `タスク: ${t.subject}`,\n          `担当: ${t.assignee}`,\n          `期限: ${t.due}(${days(now, new Date(t.due))} 日超過)`,\n          `リマインド: ${count} 回送信済み`,\n          '',\n          '担当者が対応できない状態の可能性があります。管理者の介入が必要です。',\n        ].join('\\n'),\n      });\n      changed = true;\n      return { ...t, status: 'escalated', escalated_at: now.toISOString() };\n    }\n\n    if (count < maxRemind || !blocking) {\n      notices.push({\n        to: [t.assignee], level: overdue ? 'warn' : 'info',\n        subject: overdue ? `期限超過: ${t.subject}` : `未完了のお知らせ: ${t.subject}`,\n        body: [\n          `対象: ${label}`,\n          t.steps ? `手順: ${t.steps}` : '',\n          t.due ? `期限: ${t.due}${overdue ? '(超過しています)' : ''}` : '期限: 指定なし',\n          '',\n          t.complete_url ? `完了したらこちらを開いてください: ${t.complete_url}` : '',\n          blocking ? '' : '※ このタスクは必須ではありませんが、記録のためご対応ください。',\n        ].filter(Boolean).join('\\n'),\n      });\n      changed = true;\n      return { ...t, remind_count: count + 1, last_reminded_at: now.toISOString() };\n    }\n\n    return t;\n  });\n\n  return { changed, next };\n};\n\n// --- メンバー ---\nfor (const m of members) {\n  const d = m.desired;\n  const { changed, next } = processTasks(m, `${d.name ?? m.id} (${m.id})`, {});\n  if (changed) {\n    patches.push({ kind: 'members', id: m.id, patch: { tasks: next }, reason: 'リマインド状況を更新' });\n  }\n\n  // 協力会社メンバーの契約期限。期限を過ぎてもアクセスは自動遮断しない\n  // (fail-open を意図的に受容。08 参照)。\n  if (d.status === 'active' && d.contract_until && d.sponsor) {\n    const remaining = -days(now, new Date(d.contract_until));\n    if (remaining <= 30) {\n      notices.push({\n        to: [d.sponsor], level: remaining < 0 ? 'escalation' : 'warn',\n        subject: remaining < 0\n          ? `契約期限を超過しています: ${d.name ?? m.id}`\n          : `契約期限が近づいています(残り ${remaining} 日): ${d.name ?? m.id}`,\n        body: [\n          `対象: ${d.name ?? m.id} (${d.email}) / ${d.affiliation}`,\n          `契約期限: ${d.contract_until}`,\n          '',\n          '継続する場合は台帳の contract_until を更新する PR を、',\n          '終了する場合は status: left にする PR を出してください。',\n          remaining < 0 ? '\\n※ 期限を過ぎてもアクセスは自動停止しません。対応が必要です。' : '',\n        ].filter(Boolean).join('\\n'),\n      });\n    }\n  }\n}\n\n// --- PC ---\nfor (const pc of pcs) {\n  const st = pc.state ?? {};\n  const name = st.computer_name?.value ?? pc.id;\n  const { changed, next } = processTasks(pc, `${name} (${pc.id})`, { verify: verifyDone });\n\n  const patch = {};\n  if (changed) patch.tasks = next;\n\n  // NetBox の値を state に追随させる(直接編集された場合の取り込み)\n  const dev = nb[st.netbox_device_id];\n  if (dev) {\n    if (dev.ip && st.ip_address !== dev.ip) patch.ip_address = dev.ip;\n    if (dev.provisional === false && (st.computer_name?.provisional || st.asset_no?.provisional)) {\n      patch.computer_name = { value: dev.name, provisional: false };\n      patch.asset_no = { value: dev.assetTag, provisional: false };\n    }\n  }\n\n  // blocking タスクが片付いたら active にする(blocking: false は妨げない)\n  const openBlocking = next.filter((t) => t.status === 'open' && t.blocking !== false).length;\n  if (openBlocking === 0 && st.status && st.status !== 'active') patch.status = 'active';\n\n  if (Object.keys(patch).length) {\n    patches.push({ kind: 'pcs', id: pc.id, patch, reason: 'タスクと実態を反映' });\n  }\n}\n\nif (notices.length === 0) {\n  return [{ json: { __nonotice: true, patches } }];\n}\nreturn notices.map((n) => ({ json: { ...n, __patches: patches } }));"
       },
       "id": "21000000-0000-4000-8000-000000000005",
       "name": "リマインド対象を選ぶ",
@@ -188,6 +205,71 @@
         1320,
         -100
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// メンバーに続けて PC も見る(タスクは state/pcs にもある)。\nreturn [{ json: { kind: 'pcs' } }];"
+      },
+      "id": "21000000-0000-4000-8000-000000000010",
+      "name": "PC読み取りの入力",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ledgerread00001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "21000000-0000-4000-8000-000000000011",
+      "name": "PC台帳を読む",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        220,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.NETBOX_URL }}/api/dcim/devices/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "500"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "21000000-0000-4000-8000-000000000012",
+      "name": "NetBox の実態を取得",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        200
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "netbox",
+          "name": "NetBox"
+        }
+      }
     }
   ],
   "connections": {
@@ -217,7 +299,7 @@
       "main": [
         [
           {
-            "node": "リマインド対象を選ぶ",
+            "node": "PC読み取りの入力",
             "type": "main",
             "index": 0
           }
@@ -298,6 +380,50 @@
         [
           {
             "node": "サマリを返す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PC読み取りの入力": {
+      "main": [
+        [
+          {
+            "node": "PC台帳を読む",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PC台帳を読む": {
+      "main": [
+        [
+          {
+            "node": "NetBox の実態を取得",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetBox の実態を取得": {
+      "main": [
+        [
+          {
+            "node": "リマインド対象を選ぶ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "手動実行の受け口(POST)": {
+      "main": [
+        [
+          {
+            "node": "読み取りの入力",
             "type": "main",
             "index": 0
           }

@@ -91,6 +91,7 @@ JSON には top-level の `id` を必ず付ける(無いと再インポートで
 | [05. 実行環境設計](docs/design/05-environment.md) | docker compose 構成、認証情報、実装ロードマップ |
 | [06. GitHub(GHEC)連携設計](docs/design/06-github-teams.md) | 非EMU前提、ネストTeam構造、命名規則、権限レベルとブランチ保護・CODEOWNERSの境界 |
 | [07. サーバ・VM 管理設計](docs/design/07-servers.md) | NetBoxでのモデリング(device・クラスタ・VM・IPAM)、登録フォーム、ハイパーバイザー実態との突合 |
+| [09. ワークフロー実装](docs/design/09-workflows.md) | **保守する人向け** — ワークフローの構成、呼び出し関係、実装の決まりごと、検証のしかた |
 | [08. 統制と安全装置](docs/design/08-safeguards.md) | fail-open/closed方針、脅威モデル(n8n自体の特権)、リコンサイラの安全装置、break-glass、定期再認定、個人情報、監視の監視 |
 
 ## 設計上の重要な決定(サマリ)

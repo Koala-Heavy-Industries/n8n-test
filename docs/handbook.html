@@ -436,12 +436,15 @@
           <tbody>
             <tr><td><code>reconcile</code></td><td>差分を計算し、適用する。この仕組みの心臓部</td></tr>
             <tr><td><code>service-keycloak</code></td><td>Keycloak を操作するコネクタ。何度呼んでも同じ結果になる</td></tr>
-            <tr><td><code>ledger-read</code> / <code>ledger-write</code></td><td>台帳の読み書き。競合したら読み直して再試行する</td></tr>
+            <tr><td><code>ledger-read</code> / <code>ledger-write</code> / <code>ledger-delete</code></td><td>台帳の読み書き。競合したら読み直して再試行する</td></tr>
             <tr><td><code>notify</code></td><td>通知。チャネル依存はここだけに閉じ込めてある</td></tr>
             <tr><td><code>request-approval</code></td><td>承認リンク付きの依頼を送り、応答まで待つ(汎用)</td></tr>
-            <tr><td><code>remind-scheduler</code></td><td>未完了タスクの催促とエスカレーション、契約期限の監視</td></tr>
+            <tr><td><code>remind-scheduler</code></td><td>未完了タスクの催促、実サービスを見た自動クローズ、契約期限の監視</td></tr>
             <tr><td><code>task-complete</code></td><td>完了リンクの受け口。押されるとタスクを閉じる</td></tr>
-            <tr><td><code>cron-daily</code></td><td>毎日9時に <code>reconcile</code> → <code>remind-scheduler</code> を実行</td></tr>
+            <tr><td><code>pc-register</code> / <code>device-update</code></td><td>PC の登録と、仮情報の正式化・IP 登録</td></tr>
+            <tr><td><code>netbox-assign-ip</code></td><td>IP をインターフェースに割り当て、代表 IP に設定する</td></tr>
+            <tr><td><code>weekly-audit</code> / <code>consistency-audit</code></td><td>やり残しのレポートと、台帳と実サービスの突合</td></tr>
+            <tr><td><code>cron-daily</code> / <code>cron-weekly</code></td><td>毎日9時と毎週月曜9時に上記を順に実行する</td></tr>
           </tbody>
         </table>
       </div>
@@ -763,9 +766,13 @@ docker compose up -d
 
       <footer class="end">
         <p>
+          <strong>ワークフローを保守する方へ:</strong> ノード構成・呼び出し関係・実装の決まりごとは
+          <a href="design/09-workflows.html">09. ワークフロー実装</a> にまとめてあります。
+        </p>
+        <p>
           詳細な設計判断とその理由は、<code>n8n-test</code> リポジトリの <code>docs/design/</code> にあります
           (00 全体像 / 01 メンバーライフサイクル / 03 カタログと台帳 / 04 通知と承認 /
-          05 実行環境 / 06 GitHub 連携 / 08 統制と安全装置)。
+          05 実行環境 / 06 GitHub 連携 / 08 統制と安全装置 / 09 ワークフロー実装)。
           この資料は実装済みの範囲を運用者向けにまとめたものです。
         </p>
       </footer>

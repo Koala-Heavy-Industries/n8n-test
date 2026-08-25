@@ -123,25 +123,29 @@ flowchart LR
 
 ## ワークフロー一覧
 
+実装済みのものだけを挙げる。ノード構成・データの受け渡し・実装の決まりごとは
+[09. ワークフロー実装](09-workflows.md)。
+
 | ワークフロー | 種別 | トリガー | 概要 | 詳細 |
 |---|---|---|---|---|
-| member-request(追加・変更・削除フォーム) | 入口 | Form | 申請内容から台帳リポジトリへの PR を自動作成 | [01](01-member-lifecycle.md) |
-| reconcile | 中核 | Webhook(マージ)+日次 | 台帳の desired と state の差分を計算し、付与・剥奪を収束させる | [01](01-member-lifecycle.md) |
-| pc-register | 入口 | Form | PC登録(新規購入・他部署からの搬入)。NetBox登録・ライセンス等のタスク起票 | [02](02-pc-register.md) |
-| device-update | 入口 | Form | 機器情報更新(PC・サーバ共通: 正式な資産管理番号・名前、IPアドレス) | [02](02-pc-register.md) / [07](07-servers.md) |
-| server-register | 入口 | Form | 物理サーバ登録(直接OS / ハイパーバイザー+クラスタ作成) | [07](07-servers.md) |
-| vm-register | 入口 | Form | VM登録(クラスタ所属・IP割当) | [07](07-servers.md) |
-| hypervisor-sync | 定期 | Schedule | ハイパーバイザー実態と NetBox の突合(自動同期への昇格は保留オプション) | [07](07-servers.md) |
-| request-approval | サブ | Execute Workflow | 承認依頼(メンバー系= PR レビュー実装、汎用=再開リンク実装) | [04](04-notification-abstraction.md) |
-| notify | サブ | Execute Workflow | チャネル非依存の通知 | [04](04-notification-abstraction.md) |
-| ledger-read / ledger-write | サブ | Execute Workflow | 台帳アクセスの一元化 | [03](03-service-catalog.md) |
-| service-keycloak / service-github ほか | サブ | Execute Workflow | 自動実行系ハンドラ(コネクタ / PR生成 / 準備物生成) | [03](03-service-catalog.md) |
-| remind-scheduler | 定期 | Schedule(毎日) | 未完了タスクへのリマインド・エスカレーション | [04](04-notification-abstraction.md) |
-| weekly-audit | 定期 | Schedule(週次) | 未完了・期限超過の集計レポート | [01](01-member-lifecycle.md) / [02](02-pc-register.md) |
-| consistency-audit | 定期 | Schedule(週次。高リスク項目は日次) | 実サービス(Keycloak / GitHub 等)と台帳の突合。outside collaborator・Org owner の検出を含む | [01](01-member-lifecycle.md) / [06](06-github-teams.md) |
-| recertification | 定期 | Schedule(半期) | 全メンバーの権限の要否を上長・sponsor に確認し、変更は台帳 PR を自動作成 | [08](08-safeguards.md) |
-| workflow-export-audit | 定期 | Schedule(毎日) | n8n のワークフロー定義をエクスポートしてコミットし、差分を報告(n8n 自身の監査) | [08](08-safeguards.md) |
-| heartbeat | 定期 | Schedule(毎日) | 外部監視への死活 ping。途絶を**外部側**が検知して通報する | [08](08-safeguards.md) |
+| reconcile | 中核 | サブ(cron-daily から) | 台帳の desired と state の差分を計算し、付与・剥奪を収束させる。ドライラン可 | [01](01-member-lifecycle.md) |
+| service-keycloak | コネクタ | サブ | Keycloak のユーザー作成・グループ・停止・セッション失効 | [03](03-service-catalog.md) |
+| ledger-read / ledger-write / ledger-delete | サブ | サブ | 台帳アクセスの一元化(楽観的排他と再試行を含む) | [03](03-service-catalog.md) |
+| notify | サブ | サブ | チャネル非依存の通知 | [04](04-notification-abstraction.md) |
+| request-approval | サブ | サブ | 承認リンク方式の依頼(汎用。メンバー系の承認は台帳 PR) | [04](04-notification-abstraction.md) |
+| remind-scheduler | 定期 | サブ / Webhook | 未完了タスクの催促・エスカレーション、事後検証による自動クローズ、契約期限の監視 | [04](04-notification-abstraction.md) |
+| task-complete | 入口 | Webhook | 完了リンクの受け口。タスクを閉じて grant を記録 | [04](04-notification-abstraction.md) |
+| pc-register | 入口 | Webhook / サブ | PC登録(新規購入・搬入)。NetBox 登録とタスク起票 | [02](02-pc-register.md) |
+| device-update | 入口 | Webhook / サブ | 機器情報の更新(仮情報の正式化・IP登録) | [02](02-pc-register.md) |
+| netbox-assign-ip | サブ | サブ | インターフェース作成 → IP 登録 → primary_ip4 設定 | [02](02-pc-register.md) |
+| weekly-audit | 定期 | サブ / Webhook | やり残し(未収束・期限超過・滞留)のレポート | [01](01-member-lifecycle.md) |
+| consistency-audit | 定期 | サブ / Webhook | 台帳と実サービスの突合。検出のみで自動是正しない | [08](08-safeguards.md) |
+| cron-daily / cron-weekly | 定期 | Schedule | 日次: reconcile → remind-scheduler → 高リスク監査 / 週次: weekly-audit → 全項目監査 | [09](09-workflows.md) |
+
+**未実装**: `service-github`(Organization が必要)、`server-register` / `vm-register` /
+`hypervisor-sync`(→ [07](07-servers.md))、`recertification` / `heartbeat` /
+`workflow-export-audit`(→ [08](08-safeguards.md))、メンバー申請フォーム
+(現状は台帳へ直接 PR)。
 
 ## ドキュメント構成
 
@@ -153,3 +157,4 @@ flowchart LR
 - [06. GitHub(GHEC)連携設計](06-github-teams.md)
 - [07. サーバ・VM 管理設計](07-servers.md)
 - [08. 統制と安全装置](08-safeguards.md)
+- [09. ワークフロー実装](09-workflows.md)

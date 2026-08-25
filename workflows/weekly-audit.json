@@ -1,0 +1,132 @@
+{
+  "id": "weeklyaudit00001",
+  "name": "weekly-audit",
+  "nodes": [
+    {
+      "parameters": { "httpMethod": "POST", "path": "weekly-audit", "responseMode": "lastNode", "options": {} },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "手動実行の受け口(POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-900, -160],
+      "webhookId": "d8f2b6c4-3a71-4e95-8b20-7c4d9e1f5a38"
+    },
+    {
+      "parameters": {},
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [-900, 40]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 週次のやり残しレポート。\n// 宣言的モデルでは「あるべき状態と実態の差」がそのままやり残しなので、\n// リコンサイラをドライランで走らせてその差を取得する\n// (同じ計算を二重に実装しないため)。\n// 設計: docs/design/01-member-lifecycle.md#バックストップ監査\nreturn [{ json: { dryRun: true } }];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "ドライランの入力",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-680, 0]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "reconcile0000001", "mode": "id" },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "未収束を調べる",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [-460, 0],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": { "jsCode": "return [{ json: { kind: 'members' } }];" },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "メンバー読み取りの入力",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-240, 0]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "ledgerread00001", "mode": "id" },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000006",
+      "name": "メンバーを読む",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [-20, 0]
+    },
+    {
+      "parameters": { "jsCode": "return [{ json: { kind: 'pcs' } }];" },
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "PC読み取りの入力",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 0]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "ledgerread00001", "mode": "id" },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000008",
+      "name": "PC台帳を読む",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [420, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// レポートを組み立てる。\n// 個別のリマインドが握りつぶされても、ここで必ず全体像が浮上するようにする。\n\nconst dry = $('未収束を調べる').first()?.json ?? {};\nconst members = $('メンバーを読む').all().map((i) => i.json).filter((m) => m.desired);\nconst pcs = $input.all().map((i) => i.json).filter((p) => p.state);\n\nconst now = new Date();\nconst days = (a, b) => Math.floor((a - b) / 86400000);\nconst L = [];\nlet issues = 0;\n\nconst section = (title, lines, note) => {\n  if (!lines.length) return;\n  issues += lines.length;\n  L.push(`■ ${title}(${lines.length} 件)`);\n  if (note) L.push(`  ${note}`);\n  lines.forEach((x) => L.push(`  - ${x}`));\n  L.push('');\n};\n\n// 1. 未収束(あるべき状態に追いついていない)\nsection('未収束の付与・剥奪', dry.pending ?? [],\n  'リコンサイラが適用を試み続けています。何日も残る場合は失敗が続いています。');\nsection('未実装のコネクタでスキップ', dry.skipped ?? [],\n  '自動化されていないため、当面は手動対応が必要です。');\n\n// 2. タスクの滞留\nconst overdue = [];\nconst escalated = [];\nconst longOpen = [];\nconst collect = (rec, label) => {\n  for (const t of (rec.state?.tasks ?? [])) {\n    if (t.status === 'escalated') { escalated.push(`${label}: ${t.subject}(担当 ${t.assignee})`); continue; }\n    if (t.status !== 'open') continue;\n    if (t.due && days(now, new Date(t.due)) > 0) {\n      overdue.push(`${label}: ${t.subject}(期限 ${t.due} / ${days(now, new Date(t.due))} 日超過 / 担当 ${t.assignee})`);\n    } else if (t.created_at && days(now, new Date(t.created_at)) >= 30) {\n      longOpen.push(`${label}: ${t.subject}(${days(now, new Date(t.created_at))} 日経過)`);\n    }\n  }\n};\nfor (const m of members) collect(m, `${m.desired.name ?? m.id}`);\nfor (const p of pcs) collect(p, `${p.state.computer_name?.value ?? p.id}`);\n\nsection('エスカレーション済み(担当者が対応できていない)', escalated,\n  '管理者の介入が必要です。');\nsection('期限超過のタスク', overdue);\nsection('30日以上未完了のタスク', longOpen);\n\n// 3. 適用の失敗\nconst failures = [];\nfor (const m of members) {\n  for (const [svc, msg] of Object.entries(m.state?.failures ?? {})) {\n    failures.push(`${m.desired.name ?? m.id} / ${svc}: ${msg}`);\n  }\n}\nsection('適用に失敗したまま残っているもの', failures,\n  '再試行は続きますが、権限不足など設定の問題なら人手の対応が要ります。');\n\n// 4. PC の滞留\nconst provisional = pcs.filter((p) => p.state.computer_name?.provisional || p.state.asset_no?.provisional)\n  .map((p) => `${p.state.computer_name?.value ?? p.id}(資産番号 ${p.state.asset_no?.value ?? p.id})`);\nsection('仮の資産管理番号・コンピュータ名のままの PC', provisional,\n  '情シスの正式採番を反映してください。');\n\nconst noIp = pcs.filter((p) => !p.state.ip_address)\n  .map((p) => `${p.state.computer_name?.value ?? p.id}`);\nsection('IP アドレスが未登録の PC', noIp,\n  '必須ではありませんが、記録のため登録してください。');\n\nconst stuck = pcs.filter((p) => p.state.status && p.state.status !== 'active' && p.state.status !== 'retired')\n  .map((p) => `${p.state.computer_name?.value ?? p.id}(${p.state.status})`);\nsection('利用開始の手続きが完了していない PC', stuck);\n\n// 5. 協力会社メンバーの契約期限\nconst contracts = members.filter((m) => m.desired.status === 'active' && m.desired.contract_until)\n  .map((m) => ({ m, left: -days(now, new Date(m.desired.contract_until)) }))\n  .filter((x) => x.left <= 60)\n  .map((x) => `${x.m.desired.name ?? x.m.id}: ${x.m.desired.contract_until}`\n    + (x.left < 0 ? `(${-x.left} 日超過)` : `(残り ${x.left} 日)`)\n    + ` / 受入責任者 ${x.m.desired.sponsor}`);\nsection('契約期限が近い・過ぎている協力会社メンバー', contracts,\n  '期限を過ぎてもアクセスは自動停止しません。継続か終了かの PR を出してください。');\n\nconst header = issues === 0\n  ? ['週次監査: やり残しはありません。', '',\n     `メンバー ${members.length} 名 / PC ${pcs.length} 台 — すべて収束しています。`]\n  : [`週次監査: ${issues} 件の未処理があります。`, ''];\n\nconst body = [...header, ...L,\n  '───────────────',\n  `対象: メンバー ${members.length} 名 / PC ${pcs.length} 台`,\n  `実行: ${now.toISOString()}`,\n].join('\\n');\n\nreturn [{ json: {\n  to: String($env.ADMIN_EMAILS ?? '').split(',').map((s) => s.trim()).filter(Boolean),\n  level: issues > 0 ? 'warn' : 'info',\n  subject: issues === 0 ? '週次監査: やり残しなし' : `週次監査: ${issues} 件の未処理`,\n  body,\n  __issues: issues,\n}}];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000009",
+      "name": "レポートを組み立てる",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 0]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "value": "notify0000000001", "mode": "id" },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-00000000000a",
+      "name": "管理者へ送る",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [860, 0],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $('レポートを組み立てる').first().json;\nreturn [{ json: { ok: true, issues: r.__issues, subject: r.subject, body: r.body } }];"
+      },
+      "id": "a1000000-0000-4000-8000-00000000000b",
+      "name": "結果を返す",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 0]
+    }
+  ],
+  "connections": {
+    "手動実行の受け口(POST)": { "main": [[{ "node": "ドライランの入力", "type": "main", "index": 0 }]] },
+    "When Executed by Another Workflow": { "main": [[{ "node": "ドライランの入力", "type": "main", "index": 0 }]] },
+    "ドライランの入力": { "main": [[{ "node": "未収束を調べる", "type": "main", "index": 0 }]] },
+    "未収束を調べる": { "main": [[{ "node": "メンバー読み取りの入力", "type": "main", "index": 0 }]] },
+    "メンバー読み取りの入力": { "main": [[{ "node": "メンバーを読む", "type": "main", "index": 0 }]] },
+    "メンバーを読む": { "main": [[{ "node": "PC読み取りの入力", "type": "main", "index": 0 }]] },
+    "PC読み取りの入力": { "main": [[{ "node": "PC台帳を読む", "type": "main", "index": 0 }]] },
+    "PC台帳を読む": { "main": [[{ "node": "レポートを組み立てる", "type": "main", "index": 0 }]] },
+    "レポートを組み立てる": { "main": [[{ "node": "管理者へ送る", "type": "main", "index": 0 }]] },
+    "管理者へ送る": { "main": [[{ "node": "結果を返す", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "executionTimeout": 900 }
+}

@@ -1,0 +1,409 @@
+{
+  "id": "consistaudit0001",
+  "name": "consistency-audit",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "consistency-audit",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000001",
+      "name": "手動実行の受け口(POST)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        -160
+      ],
+      "webhookId": "e4a1c8d5-9b32-4f67-8e14-5d2a7b9c3f60"
+    },
+    {
+      "parameters": {},
+      "id": "b1000000-0000-4000-8000-000000000002",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1120,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 実サービスと台帳を突合する。**検出するだけで、自動是正はしない。**\n// 緊急対応で手動停止したアカウントをリコンサイラが復活させる事故を防ぐため。\n// 是正は台帳への PR(または提案 PR)を通す。\n//\n// 入力: { scope: 'full' | 'high-risk' }\n//   high-risk … 管理者権限と「退職者が生きている」だけを見る(日次)\n//   full      … 全項目(週次)\n// 設計: docs/design/08-safeguards.md#ドリフトフロー外変更への対応方針\n\nconst inp = $input.first()?.json ?? {};\nconst body = inp.body ?? inp;\nconst scope = body.scope === 'high-risk' ? 'high-risk' : 'full';\nreturn [{ json: { scope, kind: 'members' } }];"
+      },
+      "id": "b1000000-0000-4000-8000-000000000003",
+      "name": "範囲を決める",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ledgerread00001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000004",
+      "name": "メンバーを読む",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        -680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.KEYCLOAK_URL }}/admin/realms/{{ $env.KEYCLOAK_REALM }}/users",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "max",
+              "value": "500"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000005",
+      "name": "Keycloak のユーザー一覧",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -460,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "keycloak-sa",
+          "name": "Keycloak (n8n service account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ユーザーごとの所属グループを引くための問い合わせを作る。\n// HTTP ノードはアイテムごとに実行されるので、ループを書かずに済む。\nconst users = $input.all().map((i) => i.json).filter((u) => u && u.id);\nif (users.length === 0) return [{ json: { __noUsers: true, url: null } }];\nreturn users.map((u) => ({ json: {\n  userId: u.id, username: u.username, enabled: u.enabled, email: u.email,\n  url: `${$env.KEYCLOAK_URL}/admin/realms/${$env.KEYCLOAK_REALM}/users/${u.id}/groups`,\n}}));"
+      },
+      "id": "b1000000-0000-4000-8000-000000000006",
+      "name": "所属照会を組み立てる",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-000000000007",
+      "name": "所属グループを取得",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -20,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "keycloak-sa",
+          "name": "Keycloak (n8n service account)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 台帳と Keycloak を突合する。\n// 所属グループの取得は「1ユーザー1リクエスト」で流れており、\n// n8n の pairedItem で元の問い合わせを辿れる。\n\nconst scope = $('範囲を決める').first().json.scope;\nconst members = $('メンバーを読む').all().map((i) => i.json).filter((m) => m.desired);\n// HTTP ノードはアイテムごとに実行されるため、このノードが複数回走り\n// $('...').all() が重複を返すことがある。username で一意化しておく。\nconst seen = new Set();\nconst queries = $('所属照会を組み立てる').all().map((i) => i.json)\n  .filter((q) => q.userId && !seen.has(q.username) && seen.add(q.username));\n\n// 応答をユーザーごとにまとめる\nconst groupsByUser = {};\nfor (const q of queries) groupsByUser[q.username] = [];\nconst items = $input.all();\nfor (let i = 0; i < items.length; i++) {\n  const g = items[i].json;\n  if (!g || !g.name) continue;\n  const src = items[i].pairedItem;\n  const idx = typeof src === 'number' ? src : (src?.item ?? 0);\n  const q = queries[idx];\n  if (q) groupsByUser[q.username].push(g.name);\n}\n\nconst byId = {};\nfor (const m of members) byId[m.id] = m;\n\nconst findings = { critical: [], warning: [], info: [] };\n\nfor (const q of queries) {\n  const m = byId[q.username];\n  const groups = (groupsByUser[q.username] ?? []).sort();\n\n  // 台帳に存在しない Keycloak ユーザー(フロー外で作られた可能性)\n  if (!m) {\n    findings.critical.push(`台帳にないユーザーが IdP に存在: ${q.username} (${q.email ?? '-'})`\n      + `${q.enabled ? '' : ' ※停止済み'}`);\n    continue;\n  }\n\n  // 退職・契約終了なのに有効なまま(最も危険)\n  if (m.desired.status === 'left' && q.enabled) {\n    findings.critical.push(`削除済みのはずのユーザーが有効: ${q.username}`\n      + `(台帳の最終日 ${m.desired.left_at ?? '未設定'})`);\n  }\n\n  // 管理者グループの持ち主が台帳上 admin ではない\n  if (groups.includes('admins') && m.desired.role !== 'admin') {\n    findings.critical.push(`管理者グループに台帳外の所属: ${q.username}(台帳の役割は ${m.desired.role})`);\n  }\n\n  if (scope === 'high-risk') continue;\n\n  // 台帳の記録と実際の所属の食い違い\n  const recorded = [...(m.state?.grants?.idp ?? [])]\n    .filter((g) => g.startsWith('group:')).map((g) => g.slice(6)).sort();\n  const extra = groups.filter((g) => !recorded.includes(g));\n  const missing = recorded.filter((g) => !groups.includes(g));\n  if (extra.length) {\n    findings.warning.push(`${q.username}: 台帳にない所属 [${extra.join(', ')}]`);\n  }\n  if (missing.length) {\n    findings.warning.push(`${q.username}: 台帳にあるが実際には未所属 [${missing.join(', ')}]`);\n  }\n}\n\n// 台帳では在籍なのに IdP にいない(プロビジョニング未完)\nif (scope === 'full') {\n  const known = new Set(queries.map((q) => q.username));\n  for (const m of members) {\n    if (m.desired.status === 'active' && !known.has(m.id)) {\n      findings.warning.push(`台帳では在籍だが IdP にユーザーが無い: ${m.id}(未収束の可能性)`);\n    }\n  }\n}\n\n// 同じ指摘が複数回積まれることがあるので最後に一意化する\nfor (const k of Object.keys(findings)) findings[k] = [...new Set(findings[k])];\n\nreturn [{ json: { scope, findings, checkedUsers: queries.length, checkedMembers: members.length } }];"
+      },
+      "id": "b1000000-0000-4000-8000-000000000009",
+      "name": "IdP と突合する",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { kind: 'pcs' } }];"
+      },
+      "id": "b1000000-0000-4000-8000-00000000000a",
+      "name": "PC読み取りの入力",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "ledgerread00001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-00000000000b",
+      "name": "PC台帳を読む",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        640,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.NETBOX_URL }}/api/dcim/devices/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "limit",
+              "value": "500"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-00000000000c",
+      "name": "NetBox の機器一覧",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "netbox",
+          "name": "NetBox"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// NetBox と PC 台帳を突合し、結果をまとめて通知内容にする。\nconst idp = $('IdP と突合する').first().json;\nconst findings = idp.findings;\nconst scope = idp.scope;\nconst pcs = $('PC台帳を読む').all().map((i) => i.json).filter((p) => p.state);\n\nlet devices = [];\nif (scope === 'full') {\n  const res = $input.first()?.json ?? {};\n  devices = res.results ?? [];\n\n  const byId = {};\n  for (const d of devices) byId[d.id] = d;\n  const ledgerIds = new Set(pcs.map((p) => p.state.netbox_device_id));\n\n  for (const p of pcs) {\n    const dev = byId[p.state.netbox_device_id];\n    if (!dev) {\n      findings.warning.push(`台帳にあるが NetBox に無い機器: ${p.id}`);\n      continue;\n    }\n    if (dev.asset_tag && dev.asset_tag !== p.state.asset_no?.value) {\n      findings.warning.push(`資産管理番号の食い違い: 台帳 ${p.state.asset_no?.value} / NetBox ${dev.asset_tag}`);\n    }\n  }\n  for (const d of devices) {\n    if (!ledgerIds.has(d.id)) {\n      findings.warning.push(`NetBox にあるが台帳に無い機器: ${d.name}(資産番号 ${d.asset_tag ?? '-'})`);\n    }\n  }\n}\n\nfor (const k of Object.keys(findings)) findings[k] = [...new Set(findings[k])];\nconst total = findings.critical.length + findings.warning.length;\nconst L = [];\nconst section = (title, lines) => {\n  if (!lines.length) return;\n  L.push(`■ ${title}(${lines.length} 件)`);\n  lines.forEach((x) => L.push(`  - ${x}`));\n  L.push('');\n};\n\nif (total === 0) {\n  L.push(scope === 'high-risk'\n    ? '高リスク項目の突合: 異常なし。'\n    : '台帳と実サービスは一致しています。');\n} else {\n  L.push(`台帳と実サービスに ${total} 件の差異があります。`, '');\n  section('至急の確認が必要', findings.critical);\n  section('要確認', findings.warning);\n  L.push('※ 自動では修正しません。緊急対応で手動停止した場合など、',\n    '   自動で元に戻すと危険なためです。台帳への PR で是正してください。', '');\n}\n\nL.push('───────────────',\n  `範囲: ${scope === 'high-risk' ? '高リスク項目のみ(日次)' : '全項目(週次)'}`,\n  `対象: IdP ユーザー ${idp.checkedUsers} / 台帳メンバー ${idp.checkedMembers}`\n  + (scope === 'full' ? ` / 機器 ${devices.length}` : ''),\n  `実行: ${new Date().toISOString()}`);\n\nconst level = findings.critical.length ? 'escalation' : (total ? 'warn' : 'info');\nreturn [{ json: {\n  to: String($env.ADMIN_EMAILS ?? '').split(',').map((s) => s.trim()).filter(Boolean),\n  level,\n  subject: total === 0\n    ? `整合性監査(${scope === 'high-risk' ? '日次' : '週次'}): 異常なし`\n    : `整合性監査: ${total} 件の差異(至急 ${findings.critical.length} 件)`,\n  body: L.join('\\n'),\n  __findings: findings,\n  __total: total,\n}}];"
+      },
+      "id": "b1000000-0000-4000-8000-00000000000d",
+      "name": "レポートを組み立てる",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "notify0000000001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "b1000000-0000-4000-8000-00000000000e",
+      "name": "管理者へ送る",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1300,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $('レポートを組み立てる').first().json;\nreturn [{ json: {\n  ok: true, scope: $('範囲を決める').first().json.scope,\n  differences: r.__total, critical: r.__findings.critical.length,\n  subject: r.subject, body: r.body,\n}}];"
+      },
+      "id": "b1000000-0000-4000-8000-00000000000f",
+      "name": "結果を返す",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "手動実行の受け口(POST)": {
+      "main": [
+        [
+          {
+            "node": "範囲を決める",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "範囲を決める",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "範囲を決める": {
+      "main": [
+        [
+          {
+            "node": "メンバーを読む",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "メンバーを読む": {
+      "main": [
+        [
+          {
+            "node": "Keycloak のユーザー一覧",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keycloak のユーザー一覧": {
+      "main": [
+        [
+          {
+            "node": "所属照会を組み立てる",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "所属照会を組み立てる": {
+      "main": [
+        [
+          {
+            "node": "所属グループを取得",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "所属グループを取得": {
+      "main": [
+        [
+          {
+            "node": "IdP と突合する",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IdP と突合する": {
+      "main": [
+        [
+          {
+            "node": "PC読み取りの入力",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PC読み取りの入力": {
+      "main": [
+        [
+          {
+            "node": "PC台帳を読む",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PC台帳を読む": {
+      "main": [
+        [
+          {
+            "node": "NetBox の機器一覧",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetBox の機器一覧": {
+      "main": [
+        [
+          {
+            "node": "レポートを組み立てる",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "レポートを組み立てる": {
+      "main": [
+        [
+          {
+            "node": "管理者へ送る",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "管理者へ送る": {
+      "main": [
+        [
+          {
+            "node": "結果を返す",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 900
+  }
+}

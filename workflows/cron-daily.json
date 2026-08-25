@@ -99,6 +99,39 @@
         1100,
         0
       ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 管理者権限の付与と「退職者が有効なまま」は週次では遅いため日次で見る。\n// 設計: docs/design/08-safeguards.md#監査頻度\nreturn [{ json: { scope: 'high-risk' } }];"
+      },
+      "id": "31000000-0000-4000-8000-000000000007",
+      "name": "高リスク監査の入力",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "consistaudit0001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "id": "31000000-0000-4000-8000-000000000008",
+      "name": "consistency-audit(高リスク)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        160
+      ],
+      "onError": "continueRegularOutput"
     }
   ],
   "connections": {
@@ -151,6 +184,28 @@
         [
           {
             "node": "サマリ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "サマリ": {
+      "main": [
+        [
+          {
+            "node": "高リスク監査の入力",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "高リスク監査の入力": {
+      "main": [
+        [
+          {
+            "node": "consistency-audit(高リスク)",
             "type": "main",
             "index": 0
           }

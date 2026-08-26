@@ -85,7 +85,7 @@ NetBox の背景ジョブ用ワーカーは既定で起動しない(`--profile n
 | **コンテナ間の NetBox は 8080** | ホストへは 8000 で公開するが、コンテナ内は 8080 で待ち受ける。`NETBOX_URL` をコンテナ間通信用に `http://netbox:8080` にしないと接続できない(ホスト公開ポートと混同しやすい) |
 | **Webhook トリガーのフローは Execute Workflow の宛先を式にできない** | 宛先を `={{ $json.xxx }}` のような式にすると**ワークフローを有効化できず**、Webhook も登録されない(エラーは出ない。`active` が false のままになる)。汎用の実行ランナーは作れないため、入口フローごとに Webhook トリガーを持たせる。リコンサイラのように Execute Workflow トリガーのみのフローでは式による動的な宛先を使える |
 | **Form Trigger はカスタムパスを持てない** | 公開 URL は `/form/<webhookId>` になる(`path` を指定しても使われない)。JSON に固定の `webhookId` を書いておけば URL は安定する |
-| **Form の送信フィールド名は `field-0` からの連番** | 表示ラベルではなく定義順の連番で送られる。ワークフロー側にはラベルをキーとした形で渡るが、**フォームの項目順を変えると送信側との対応がずれる**ため、項目の並び替えには注意する(curl での検証時も連番を使う) |
+| **Form の送信フィールド名は `field-0` からの連番** | 表示ラベルではなく定義順の連番で送られ、サーバ側が位置でラベルに解決する(ワークフローにはラベルをキーとして届く)。**ブラウザから使う分には問題ない**(ページを開いた時点の定義に沿って送るため)。注意が要るのは**連番を決め打ちして直接 POST する場合**で、項目を挿入・並び替えすると値が隣の項目に入る。しかも**エラーにならず誤った値で成功する**。検証用の curl コマンドや外部システムからの連携を書くときは、フォーム定義の変更に追随させること |
 | **resume URL は署名付きで、既にクエリを含む** | `$execution.resumeUrl` は `?signature=<HMAC>` を含む。承認/却下のパラメータは `&` で連結する(→ [04](04-notification-abstraction.md#チャネル非依存の承認完了報告方式)) |
 | **NetBox の API トークンは v2 形式** | イメージの `SUPERUSER_API_TOKEN` は効かず、トークン作成には `API_TOKEN_PEPPER_1` の設定が必須。トークン値はサーバが生成し、**作成時にしか平文を取得できない**ため `scripts/setup-netbox.py` が生成して `.env` に書き戻す。認証ヘッダは `Authorization: Bearer nbt_<key>.<plaintext>`(v1 の `Token <値>` ではない) |
 | Keycloak のブートストラップ変数 | Keycloak 26 では `KC_BOOTSTRAP_ADMIN_USERNAME` / `KC_BOOTSTRAP_ADMIN_PASSWORD`(旧 `KEYCLOAK_ADMIN*` は非推奨) |

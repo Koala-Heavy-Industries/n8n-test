@@ -1,0 +1,29 @@
+# チームマトリクス — チーム × サービス → 付与内容(grant)
+#
+# GitHub は役割ごとに展開先の Team が異なるため、役割別に明示する。
+# ここに書かれていない(チーム, 役割)の組合せは CI がエラーにする。
+# 意図的に付与しない場合は null を明示すること(未定義との区別)。
+#
+# GitHub Team の構造(ネスト)は ../../n8n-test/docs/design/06-github-teams.md
+#   all-members(親。共通リポジトリを1回だけ付与)
+#   ├── alpha-devs
+#   │   └── alpha-reviewers
+#   └── beta-devs
+#       └── beta-reviewers
+
+teams:
+  alpha:
+    idp: group:team-alpha
+    github:
+      developer: team:alpha-devs
+      reviewer: team:alpha-reviewers
+      pm: null # alpha の pm は GitHub のチーム別 Team には入れない(役割側の team:pm のみ)
+      admin: team:alpha-devs
+
+  beta:
+    idp: group:team-beta
+    github:
+      developer: team:beta-devs
+      reviewer: team:beta-reviewers
+      pm: null
+      admin: team:beta-devs

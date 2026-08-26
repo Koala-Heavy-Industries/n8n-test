@@ -1,0 +1,39 @@
+# 役割マトリクス — 役割 × サービス → 付与内容(grant)
+#
+# ここに書くのは「チームに依存しない横断的な権限」だけ。
+# チーム別の権限は team-matrix.yaml に書く。
+# あるべき grant 集合 = 役割マトリクス ∪ ⋃チームマトリクス ∪ extra_grants
+#
+# grant の値は不透明な文字列として扱い、解釈はハンドラ(自動実行時)または
+# タスク本文への埋め込み(人手実行時)に委ねる。
+# 付与しない場合は null を明示する(未定義との区別のため)。
+
+roles:
+  developer:
+    idp: null # チーム側で付与
+    github: null # チーム側で付与
+    paid-license: JetBrains 1シート
+    claude: 標準シート
+
+  reviewer:
+    idp: null
+    github: null
+    paid-license: JetBrains 1シート
+    claude: 標準シート
+
+  pm:
+    idp: group:pm
+    github: team:pm
+    paid-license: null
+    claude: 標準シート
+
+  admin:
+    idp: group:admins
+    github: org-role:owner
+    paid-license: JetBrains 1シート
+    claude: 管理者シート
+
+# affiliation による制約(CI で強制)
+constraints:
+  - role: admin
+    allowed_affiliation: [employee] # 協力会社メンバーには付与しない

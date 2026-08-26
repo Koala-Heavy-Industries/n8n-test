@@ -1,0 +1,24 @@
+# PC 必須ソフトカタログ
+#
+# PC 登録時に、enabled: true の各行ごとにライセンス購入タスクを起票する。
+# 登録フォームで「導入済み」にチェックされたソフトは起票しない(搬入 PC 等)。
+# 設計: ../../n8n-test/docs/design/02-pc-register.md
+
+software:
+  - id: jetbrains
+    name: JetBrains All Products Pack
+    license_type: 年間サブスクリプション(1シート)
+    vendor_url: https://www.jetbrains.com/store/
+    assignee: LICENSE_ASSIGNEE
+    due_days: 7
+    verify: human
+    enabled: true
+
+  - id: office
+    name: Microsoft 365(業務用)
+    license_type: 年間サブスクリプション(1シート)
+    vendor_url: ""
+    assignee: LICENSE_ASSIGNEE
+    due_days: 7
+    verify: human
+    enabled: true

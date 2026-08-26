@@ -1,0 +1,106 @@
+# サービスカタログ
+#
+# 1エントリ = 1サービス。リコンサイラは enabled: true のエントリを order 順に処理する。
+# operations は add / change / remove ごとに「実行方式 × 確認方式」を持つ。
+#   execute: idp | api | iac-pr | prepared | manual
+#   verify:  api | event | human | none
+# 設計: ../../n8n-test/docs/design/03-service-catalog.md
+#
+# 規則: remove に execute: idp は使えない(JIT 作成された SaaS アカウントと
+#       シート課金が残るため)。CI で検証する。
+
+services:
+  - service_id: idp
+    name: Keycloak(プロジェクト IdP)
+    order: 10 # 最優先。追加時は下流 JIT の前提、削除時はキルスイッチ
+    enabled: true
+    operations:
+      add: { execute: api, verify: api, connector: service-keycloak }
+      change: { execute: api, verify: api, connector: service-keycloak }
+      remove: { execute: api, verify: api, connector: service-keycloak }
+
+  - service_id: github
+    name: GitHub(GHEC / 非 EMU)
+    order: 20
+    enabled: true
+    operations:
+      add: { execute: api, verify: api, connector: service-github }
+      change: { execute: api, verify: api, connector: service-github }
+      remove: { execute: api, verify: api, connector: service-github }
+
+  - service_id: paid-license
+    name: 有償ライセンス(JetBrains 等)
+    order: 30
+    enabled: true
+    operations:
+      add:
+        execute: manual
+        verify: human
+        task_template:
+          subject: "{member} 向けに {grant} を購入する"
+          assignee: LICENSE_ASSIGNEE
+          due_days: 7
+          steps: 購入ポータルでシートを追加し、対象者を招待する
+      change:
+        execute: manual
+        verify: human
+        task_template:
+          subject: "{member} のライセンスを {grant} に変更する"
+          assignee: LICENSE_ASSIGNEE
+          due_days: 7
+      remove:
+        execute: manual
+        verify: human
+        task_template:
+          subject: "{member} のライセンスを解約する"
+          assignee: LICENSE_ASSIGNEE
+          due_days: 0 # 期限=最終日
+          steps: シートを解放し、次回請求に反映されることを確認する
+    capacity:
+      tracked: true
+      total_source: ledger # 総枠は手動管理(購入時に更新)
+      used_source: ledger
+      total: 5
+      threshold: 1 # 空きが 1 を切ったら調達タスクを起票
+      procurement:
+        subject: JetBrains のシートを追加購入する
+        assignee: LICENSE_ASSIGNEE
+        due_days: 14
+
+  - service_id: claude
+    name: Claude(Anthropic)
+    order: 40
+    enabled: true
+    # Admin API 導入時は execute/verify を api に変え、connector を足すだけで昇格できる
+    operations:
+      add:
+        execute: manual
+        verify: human
+        task_template:
+          subject: "{member} を Claude に招待する({grant})"
+          assignee: ADMIN_EMAILS
+          due_days: 3
+      change:
+        execute: manual
+        verify: human
+        task_template:
+          subject: "{member} の Claude シートを {grant} に変更する"
+          assignee: ADMIN_EMAILS
+          due_days: 7
+      remove:
+        execute: manual
+        verify: human
+        task_template:
+          subject: "{member} の Claude アカウントを削除する"
+          assignee: ADMIN_EMAILS
+          due_days: 0
+    capacity:
+      tracked: true
+      total_source: ledger
+      used_source: ledger
+      total: 10
+      threshold: 2
+      procurement:
+        subject: Claude のシートを追加する
+        assignee: ADMIN_EMAILS
+        due_days: 7

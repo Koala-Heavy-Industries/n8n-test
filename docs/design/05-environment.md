@@ -105,6 +105,9 @@ credential を使った HTTP Request ノードで Keycloak Admin API を呼び�
 
 ## 初期セットアップ手順(実装フェーズで実施)
 
+> 実際に構築するときは、検証済みの手順をまとめた **[SETUP.md](../SETUP.md)** を使うこと。
+> 以下は設計時に想定した内容で、構築の順序としては SETUP.md が正。
+
 1. `docker compose up -d` → n8n オーナーアカウント作成、NetBox superuser 作成、
    Keycloak 管理者作成。
 2. Keycloak: realm 作成、役割マトリクスに対応するグループ作成、

@@ -1,0 +1,45 @@
+name: 台帳の検証
+
+# この台帳への PR が「承認」そのものになるため、
+# レビュアーが権限への影響を見て判断できる状態を CI で担保する。
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    name: スキーマ・制約・権限差分
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install --quiet pyyaml
+
+      - name: スキーマと制約を検証する
+        run: python ci/ledger.py validate
+
+      - name: state/ の人手編集を拒否する
+        if: always()
+        run: python ci/ledger.py guard-state --base "${{ github.base_ref }}"
+
+      - name: 権限差分を PR にコメントする
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python ci/ledger.py preview --base "${{ github.base_ref }}" --out preview.md
+          if [ -s preview.md ]; then
+            gh pr comment "${{ github.event.number }}" --body-file preview.md
+          else
+            echo "権限に影響する変更はありません"
+          fi

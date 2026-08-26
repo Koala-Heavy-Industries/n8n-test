@@ -33,8 +33,8 @@ ID は固定値(変えると再インポートで重複する)。
 | **consistency-audit** | `consistaudit0001` | サブ / `POST /webhook/consistency-audit` | ledger-read / notify |
 | **cron-daily** | `crondaily0000001` | 定期(毎日9時) | reconcile → remind-scheduler → consistency-audit(高リスク) |
 | **cron-weekly** | `cronweekly000001` | 定期(毎週月曜9時) | weekly-audit → consistency-audit(全項目) |
-| **form-member-request** | `formmember00001` | Form(`/form/f6b2d9a4-…`) | ledger-read / ledger-propose |
-| **form-pc-register** | `formpcregist0001` | Form(`/form/a9d4f7b2-…`) | pc-register |
+| **form-member-request** | `formmember00001` | Form([メンバー申請](http://localhost:5678/form/f6b2d9a4-1c73-4e58-8a90-3d5f2b7c4e18)) | ledger-read / ledger-propose |
+| **form-pc-register** | `formpcregist0001` | Form([PC登録](http://localhost:5678/form/a9d4f7b2-5e81-4c36-9f20-6b3a1d8e5c74)) | pc-register |
 | **ledger-propose** | `ledgerpropose001` | サブ | — (台帳への PR 作成) |
 | **probe-yaml** | `probeyaml000001` | サブ | — (Code ノードで YAML が使えることの確認用) |
 
@@ -184,6 +184,14 @@ Webhook から直接呼ぶ経路と処理を共通にするため。
   ブランチ+コミット+PR を作る。**bot は desired を直接書かない**(必ず PR)。
   追加なのに既存、変更・削除なのに不在、といった不整合はこの時点で止める。
 - **PC 登録**: 日本語ラベルを `pc-register` の入力形式に写すだけ。
+
+URL は `/form/<webhookId>` 固定(カスタムパスを持てないため)。
+webhookId は JSON に書いてあるので、再インポートしても URL は変わらない。
+
+| フォーム | URL |
+|---|---|
+| メンバー申請 | http://localhost:5678/form/f6b2d9a4-1c73-4e58-8a90-3d5f2b7c4e18 |
+| PC 登録 | http://localhost:5678/form/a9d4f7b2-5e81-4c36-9f20-6b3a1d8e5c74 |
 
 ### 監査
 

@@ -455,11 +455,18 @@
       <h2>3. メンバーの追加・変更・削除</h2>
       <p class="sub">やることは全部同じ — 台帳の YAML を編集する PR を出す。</p>
 
+      <div class="note">
+        <span class="lbl">申請フォーム</span>
+        <p><a href="http://localhost:5678/form/f6b2d9a4-1c73-4e58-8a90-3d5f2b7c4e18">メンバー申請フォームを開く</a><br>
+        入力して送信すると、台帳への Pull Request が自動で作られます。
+        エンジニアは台帳に直接 PR を出しても構いません — どちらも同じ承認・適用フローに合流します。</p>
+      </div>
+
       <div class="role">
         <header><span class="who">申請する人</span><span class="what">メンバーを迎える / 役割を変える / 抜ける</span></header>
         <div class="body">
           <ol class="steps">
-            <li><strong>台帳に PR を出す。</strong> <code>khi-ledger</code> の <code>members/</code> を編集します。</li>
+            <li><strong>フォームから申請する</strong>か、<strong>台帳に PR を出す。</strong> <code>khi-ledger</code> の <code>members/</code> を編集します。</li>
             <li><strong>レビューを受けてマージする。</strong> このマージが承認そのものです。</li>
             <li><strong>あとは待つだけ。</strong> 自動でできる操作は数分で反映され、人手が要る作業は担当者にタスクが飛びます。</li>
           </ol>
@@ -508,6 +515,13 @@ left_at: 2026-09-30    <span class="c"># この日いっぱいは有効。翌日
     <section id="task">
       <h2>4. 依頼が来たとき</h2>
       <p class="sub">メールのリンクを開くだけで完了報告になります。</p>
+
+      <div class="note">
+        <span class="lbl">PC 登録フォーム</span>
+        <p><a href="http://localhost:5678/form/a9d4f7b2-5e81-4c36-9f20-6b3a1d8e5c74">PC 登録フォームを開く</a><br>
+        新規購入も他部署からの搬入も、このフォームから登録します。
+        送信すると NetBox への登録と、必要なタスクの依頼まで自動で進みます。</p>
+      </div>
 
       <div class="role">
         <header><span class="who">タスクの担当者</span><span class="what">ライセンス購入、アカウント招待など</span></header>

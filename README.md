@@ -60,6 +60,17 @@ fine-grained PAT(Contents: Read and write のみ)を `.env` に入れてから:
 ./scripts/deploy-workflows.py     # workflows/*.json をインポート・有効化・再起動
 ```
 
+## 申請フォーム
+
+利用者が使う入口。送信すると台帳への PR 作成(メンバー)や NetBox 登録(PC)まで自動で進む。
+
+| フォーム | URL |
+|---|---|
+| **メンバー申請**(追加・役割変更・削除) | http://localhost:5678/form/f6b2d9a4-1c73-4e58-8a90-3d5f2b7c4e18 |
+| **PC 登録**(新規購入・搬入) | http://localhost:5678/form/a9d4f7b2-5e81-4c36-9f20-6b3a1d8e5c74 |
+
+エンジニアは台帳に直接 PR を出しても構わない(同じ承認・適用フローに合流する)。
+
 ## ワークフローの開発
 
 ワークフローは UI ではなく `workflows/*.json` として Git 管理し、CLI で
